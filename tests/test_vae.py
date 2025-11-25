@@ -170,7 +170,8 @@ class TestExtractVae(unittest.TestCase):
             "first_stage_model.decoder.conv_out.weight": torch.randn(3, 10, 3, 3),
         }
         
-        output_path = Path("extracted_vae.safetensors")  # Not used yet
+        # output_path is required by the function signature but not used for saving yet (TODO in v2)
+        output_path = Path("extracted_vae.safetensors")
         result = vae.extract_vae(model_state_dict, output_path)
         
         # Should have VAE keys without prefix

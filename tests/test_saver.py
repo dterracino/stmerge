@@ -4,6 +4,7 @@ Tests for saver.py module.
 Tests model saving, contiguity handling, and metadata generation.
 """
 
+import shutil
 import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -183,7 +184,6 @@ class TestSaveModel(unittest.TestCase):
         self.assertTrue(output_path.exists())
         
         # Clean up created directories
-        import shutil
         shutil.rmtree(self.temp_dir / "new_subdir", ignore_errors=True)
 
 

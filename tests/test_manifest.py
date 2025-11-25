@@ -5,6 +5,7 @@ Tests manifest dataclasses, serialization, scanning, validation,
 and output filename generation.
 """
 
+import shutil
 import unittest
 import json
 import tempfile
@@ -251,7 +252,6 @@ class TestManifestSaveLoad(unittest.TestCase):
     
     def tearDown(self):
         """Clean up temp files."""
-        import shutil
         shutil.rmtree(self.temp_dir, ignore_errors=True)
     
     @patch('model_merger.manifest.print_success')
@@ -350,7 +350,6 @@ class TestScanFolder(unittest.TestCase):
     def tearDown(self):
         """Clean up test files."""
         cleanup_test_files(self.test_files)
-        import shutil
         shutil.rmtree(self.temp_dir, ignore_errors=True)
     
     def test_nonexistent_folder_raises(self):
