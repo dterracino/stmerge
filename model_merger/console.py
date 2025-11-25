@@ -6,7 +6,7 @@ gorgeous output throughout the tool. No more boring print statements!
 """
 
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeRemainingColumn
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 from rich.panel import Panel
 from rich import box
@@ -150,6 +150,15 @@ def create_progress() -> Progress:
     
     This replaces tqdm with something way prettier!
     
+    Note: We use TimeElapsedColumn instead of TimeRemainingColumn because:
+    - It's stable and never flickers (no more -:--:--)
+    - It's more useful for benchmarking ("this took 3m 45s")
+    - ETA calculation is unreliable with variable disk I/O speeds
+    
+    We also use a slower refresh rate (4 Hz instead of default 10 Hz)
+    to reduce strain on Windows console resources, especially when
+    processing large models that put memory pressure on the system.
+    
     Returns:
         Configured Progress object. Use with context manager:
         
@@ -163,23 +172,43 @@ def create_progress() -> Progress:
         TextColumn("[bold blue]{task.description}"),
         BarColumn(complete_style="green", finished_style="bold green"),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeRemainingColumn(),
-        console=console
+        TimeElapsedColumn(),  # Show elapsed time instead of remaining
+        console=console,
+        refresh_per_second=4  # Slower refresh to reduce console handle pressure
     )
 
 
-def print_completion(output_path: str, size_mb: float, hash_value: str) -> None:
+def print_completion(output_path: str, size_mb: float, hash_value: str, elapsed_seconds: float) -> None:
     """
     Print the final success message with all the details.
     
     Makes a beautiful panel with all the info about the merged model.
+    
+    Args:
+        output_path: Path to the output file
+        size_mb: Size in megabytes
+        hash_value: SHA-256 hash
+        elapsed_seconds: Total time taken in seconds
     """
     console.print()
+    
+    # Format elapsed time nicely
+    if elapsed_seconds < 60:
+        time_str = f"{elapsed_seconds:.1f}s"
+    elif elapsed_seconds < 3600:
+        minutes = int(elapsed_seconds // 60)
+        seconds = int(elapsed_seconds % 60)
+        time_str = f"{minutes}m {seconds}s"
+    else:
+        hours = int(elapsed_seconds // 3600)
+        minutes = int((elapsed_seconds % 3600) // 60)
+        time_str = f"{hours}h {minutes}m"
     
     message = (
         f"[bold green]✨ MERGE COMPLETE! ✨[/bold green]\n\n"
         f"[cyan]Location:[/cyan] {output_path}\n"
         f"[cyan]Size:[/cyan] {size_mb:.2f} MB\n"
+        f"[cyan]Time:[/cyan] {time_str}\n"
         f"[cyan]SHA-256:[/cyan] [dim]{hash_value}[/dim]\n\n"
         f"[dim]💡 Tip: Save this hash for verification or model lookup![/dim]"
     )

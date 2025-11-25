@@ -6,6 +6,7 @@ Handles argument parsing and orchestrates the merge workflow.
 
 import sys
 import argparse
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -125,6 +126,9 @@ def cmd_merge(args):
     else:
         print_success("Manifest validation passed!")
     
+    # Start timing the merge process
+    start_time = time.time()
+    
     # Step 1: Merge models
     try:
         merged_dict = merger_module.merge_models(
@@ -207,8 +211,11 @@ def cmd_merge(args):
         manifest.save(manifest_path)
         print_success(f"Updated manifest with output info: {manifest_path}")
         
-        # Print beautiful completion message
-        print_completion(str(output_path), size_mb, output_hash)
+        # Calculate total elapsed time
+        elapsed_seconds = time.time() - start_time
+        
+        # Print beautiful completion message with timing
+        print_completion(str(output_path), size_mb, output_hash, elapsed_seconds)
         
     except Exception as e:
         print_error(f"Error saving model: {e}")

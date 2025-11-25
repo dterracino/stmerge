@@ -5,6 +5,7 @@ This module implements the core weighted merge algorithm using an accumulator
 pattern to avoid loading all models into memory at once.
 """
 
+import gc
 import torch
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -139,9 +140,22 @@ def merge_models(
         
         console.print(f"  [dim]Merged {merged_keys} tensors, skipped {skipped_keys}[/dim]")
         
-        # Free memory
+        # AGGRESSIVE MEMORY CLEANUP
+        # Move tensors to CPU before deletion (frees GPU memory if on CUDA)
+        if device != 'cpu':
+            current_model = {k: v.cpu() for k, v in current_model.items()}
+        
+        # Delete the model
         del current_model
-        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        
+        # Force Python's garbage collector to run NOW
+        # This is critical - Python's GC is lazy and we need immediate cleanup
+        gc.collect()
+        
+        # Empty CUDA cache if available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()  # Wait for all CUDA ops to finish
     
     # Clean up reference dict
     del reference_dict

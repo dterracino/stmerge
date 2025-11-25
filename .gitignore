@@ -149,3 +149,4 @@ Thumbs.db
 *.pt
 *.pth
 *.bin
+merge_manifest.json

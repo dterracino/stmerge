@@ -35,7 +35,9 @@
     "precision_detected": "fp16"
   },
   "output": {
-    "path": "MiaoMiaoMegaMix_v1.safetensors"
+    "path": "MiaoMiaoMegaMix_v1.safetensors",
+    "sha256": "28c9d2d4fcc1610d8f6c483ee77a2fd7070b35a95dff5bed4169e80d08497dfd",
+    "precision_written": "fp16"
   },
   "output_precision": "match",
   "device": "cpu",
