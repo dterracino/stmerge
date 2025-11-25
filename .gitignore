@@ -153,3 +153,5 @@ Thumbs.db
 # Manifest files
 merge_manifest.json
 
+tests/__pycache__/
+tests/temp/
