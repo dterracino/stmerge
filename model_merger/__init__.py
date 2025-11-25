@@ -33,6 +33,8 @@ from .loader import (
 from .manifest import (
     MergeManifest,
     ModelEntry,
+    VAEEntry,
+    OutputEntry,
     scan_folder,
     validate_manifest,
 )
@@ -68,6 +70,8 @@ __all__ = [
     # Manifest
     'MergeManifest',
     'ModelEntry',
+    'VAEEntry',
+    'OutputEntry',
     'scan_folder',
     'validate_manifest',
     

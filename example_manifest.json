@@ -29,9 +29,16 @@
       "sha256": "d4e5f6789a1b2c3..."
     }
   ],
-  "vae": "/path/to/sdxl_vae.safetensors",
-  "vae_sha256": "e5f6789a1b2c3d4...",
-  "output": "Pony_PonyReal_PonyFurr_PonySemi_merged.safetensors",
+  "vae": {
+    "path": "/path/to/sdxl_vae.safetensors",
+    "sha256": "e5f6789a1b2c3d4...",
+    "precision_detected": "fp16"
+  },
+  "output": {
+    "path": "Pony_PonyReal_PonyFurr_PonySemi_merged.safetensors",
+    "sha256": "74e7a8286a298058a0d2dfc9a6d3a31412143dfcee9a2527f3369d8ec448df90",
+    "precision_written": "fp16"
+  },
   "output_precision": "match",
   "device": "cpu",
   "prune": true,

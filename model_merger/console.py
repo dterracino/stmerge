@@ -70,12 +70,12 @@ def print_step(current: int, total: int, message: str) -> None:
     console.print(f"[bold cyan][{current}/{total}][/bold cyan] {message}")
 
 
-def print_models_table(models: List[Dict[str, Any]]) -> None:
+def print_models_table(models: List[Any]) -> None:
     """
     Display models in a beautiful table.
     
     Args:
-        models: List of model entries from manifest
+        models: List of ModelEntry objects from manifest
         
     Shows model names, weights, and architectures in a formatted table.
     """
@@ -94,15 +94,15 @@ def print_models_table(models: List[Dict[str, Any]]) -> None:
     for model in models:
         # Extract just the filename from the path
         from pathlib import Path
-        filename = Path(model['path']).name
+        filename = Path(model.path).name  # Use attribute, not subscript!
         
         # Truncate if too long
         if len(filename) > 37:
             filename = filename[:34] + "..."
         
-        weight = f"{model['weight']:.3f}"
-        arch = model.get('architecture', '?')
-        precision = model.get('precision_detected', '?')
+        weight = f"{model.weight:.3f}"
+        arch = model.architecture if hasattr(model, 'architecture') else '?'
+        precision = model.precision_detected if hasattr(model, 'precision_detected') else '?'
         
         table.add_row(filename, weight, arch, precision)
     
@@ -125,13 +125,21 @@ def print_manifest_summary(manifest) -> None:
     # Print other settings
     if manifest.vae:
         from pathlib import Path
-        vae_name = Path(manifest.vae).name
+        vae_name = Path(manifest.vae.path).name  # Extract path from VAEEntry
         console.print(f"[cyan]VAE:[/cyan] {vae_name}")
+        if manifest.vae.precision_detected:
+            console.print(f"[cyan]VAE Precision:[/cyan] {manifest.vae.precision_detected}")
     else:
         console.print(f"[dim]VAE: None[/dim]")
     
-    console.print(f"[cyan]Output:[/cyan] {manifest.output}")
-    console.print(f"[cyan]Precision:[/cyan] {manifest.output_precision}")
+    # Output is never None after __post_init__, but help Pylance understand that
+    assert manifest.output is not None, "Output should always be set"
+    console.print(f"[cyan]Output:[/cyan] {manifest.output.path}")
+    if manifest.output.sha256:
+        console.print(f"[cyan]Output Hash:[/cyan] [dim]{manifest.output.sha256}[/dim]")
+    if manifest.output.precision_written:
+        console.print(f"[cyan]Output Precision:[/cyan] {manifest.output.precision_written}")
+    console.print(f"[cyan]Precision Setting:[/cyan] {manifest.output_precision}")
     console.print(f"[cyan]Device:[/cyan] {manifest.device}")
     console.print(f"[cyan]Prune:[/cyan] {'Yes' if manifest.prune else 'No'}")
 

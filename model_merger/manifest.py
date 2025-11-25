@@ -12,7 +12,7 @@ from typing import List, Dict, Optional
 from dataclasses import dataclass, asdict
 
 from . import config
-from .loader import compute_file_hash, load_model
+from .loader import compute_file_hash, load_model, load_vae
 from .console import console, print_info, print_success
 
 
@@ -31,24 +31,55 @@ class ModelEntry:
 
 
 @dataclass
+class VAEEntry:
+    """Represents the VAE in the merge manifest."""
+    path: str
+    sha256: Optional[str] = None
+    precision_detected: Optional[str] = None
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization."""
+        return {k: v for k, v in asdict(self).items() if v is not None}
+
+
+@dataclass
+class OutputEntry:
+    """Represents the output model from the merge."""
+    path: str
+    sha256: Optional[str] = None
+    precision_written: Optional[str] = None
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization."""
+        return {k: v for k, v in asdict(self).items() if v is not None}
+
+
+@dataclass
 class MergeManifest:
     """Complete merge configuration."""
     models: List[ModelEntry]
-    vae: Optional[str] = None
-    vae_sha256: Optional[str] = None
-    output: str = config.DEFAULT_OUTPUT_FILENAME
-    output_precision: str = 'match'
+    vae: Optional[VAEEntry] = None
+    output: Optional[OutputEntry] = None  # Mark as optional since it can be None initially
+    output_precision: str = 'match'  # Keep for pre-merge config
     device: str = 'cpu'
     prune: bool = True
     overwrite: bool = False
+    
+    def __post_init__(self):
+        """Ensure output is an OutputEntry, even if initialized with just a string."""
+        if isinstance(self.output, str):
+            # Convert string path to OutputEntry for backwards compat
+            self.output = OutputEntry(path=self.output)
+        elif self.output is None:
+            # Default output
+            self.output = OutputEntry(path=config.DEFAULT_OUTPUT_FILENAME)
     
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization."""
         return {
             'models': [m.to_dict() for m in self.models],
-            'vae': self.vae,
-            'vae_sha256': self.vae_sha256,
-            'output': self.output,
+            'vae': self.vae.to_dict() if self.vae else None,
+            'output': self.output.to_dict() if self.output else None,
             'output_precision': self.output_precision,
             'device': self.device,
             'prune': self.prune,
@@ -59,11 +90,36 @@ class MergeManifest:
     def from_dict(cls, data: Dict) -> 'MergeManifest':
         """Create manifest from dictionary (loaded from JSON)."""
         models = [ModelEntry(**m) for m in data['models']]
+        
+        # Handle VAE - could be old format (string) or new format (dict)
+        vae_data = data.get('vae')
+        if vae_data:
+            if isinstance(vae_data, dict):
+                # New format
+                vae = VAEEntry(**vae_data)
+            else:
+                # Old format (just a path string) - convert for backwards compat
+                vae = VAEEntry(path=vae_data, sha256=data.get('vae_sha256'))
+        else:
+            vae = None
+        
+        # Handle output - could be old format (string) or new format (dict)
+        output_data = data.get('output', config.DEFAULT_OUTPUT_FILENAME)
+        if isinstance(output_data, dict):
+            # New format - OutputEntry
+            output = OutputEntry(**output_data)
+        else:
+            # Old format (just a path string) - convert for backwards compat
+            # Check if there's an old-style output_sha256 field
+            output = OutputEntry(
+                path=output_data,
+                sha256=data.get('output_sha256')
+            )
+        
         return cls(
             models=models,
-            vae=data.get('vae'),
-            vae_sha256=data.get('vae_sha256'),
-            output=data.get('output', config.DEFAULT_OUTPUT_FILENAME),
+            vae=vae,
+            output=output,
             output_precision=data.get('output_precision', 'match'),
             device=data.get('device', 'cpu'),
             prune=data.get('prune', True),
@@ -130,7 +186,8 @@ def scan_folder(
     folder: Path,
     vae_file: Optional[Path] = None,
     compute_hashes: bool = False,
-    equal_weights: bool = True
+    equal_weights: bool = True,
+    skip_errors: bool = False
 ) -> MergeManifest:
     """
     Scan a folder for model files and generate a merge manifest.
@@ -144,6 +201,7 @@ def scan_folder(
         vae_file: Optional VAE file to bake in
         compute_hashes: Whether to compute SHA-256 hashes (slow!)
         equal_weights: If True, give all models equal weights (1/N each)
+        skip_errors: If True, skip files that can't be loaded and continue
         
     Returns:
         Generated MergeManifest
@@ -170,50 +228,98 @@ def scan_folder(
     detected_arch = config.detect_architecture_from_filename(first_file.name)
     print_info(f"Detected architecture: [bold]{detected_arch}[/bold] (from {first_file.name})")
     
-    # Calculate equal weights if requested
-    if equal_weights:
-        weight = 1.0 / len(model_files)
-    else:
-        weight = 1.0  # User will need to edit these
-    
     # Build model entries
     model_entries = []
+    skipped_files = []
+    
     for model_file in model_files:
-        # Detect architecture for this specific file
-        arch = config.detect_architecture_from_filename(model_file.name)
-        
-        # Optionally compute hash
-        file_hash = None
-        if compute_hashes:
-            print_info(f"Computing hash for {model_file.name}...")
-            file_hash = compute_file_hash(model_file)
-        
-        # Load model briefly to detect precision
-        console.print(f"[cyan]Detecting precision for {model_file.name}...[/cyan]")
-        state_dict, metadata = load_model(model_file, device='cpu', compute_hash=False)
-        precision = metadata['precision']
-        del state_dict  # Free memory immediately
-        
-        entry = ModelEntry(
-            path=str(model_file),
-            weight=weight,
-            architecture=arch,
-            sha256=file_hash,
-            precision_detected=precision
-        )
-        model_entries.append(entry)
+        try:
+            # Detect architecture for this specific file
+            arch = config.detect_architecture_from_filename(model_file.name)
+            
+            # Optionally compute hash
+            file_hash = None
+            if compute_hashes:
+                print_info(f"Computing hash for {model_file.name}...")
+                file_hash = compute_file_hash(model_file)
+            
+            # Load model briefly to detect precision
+            console.print(f"[cyan]Detecting precision for {model_file.name}...[/cyan]")
+            state_dict, metadata = load_model(model_file, device='cpu', compute_hash=False)
+            precision = metadata['precision']
+            del state_dict  # Free memory immediately
+            
+            # Don't set weight yet - we'll do that after we know how many loaded successfully
+            entry = ModelEntry(
+                path=str(model_file),
+                weight=0.0,  # Placeholder, will be set below
+                architecture=arch,
+                sha256=file_hash,
+                precision_detected=precision
+            )
+            model_entries.append(entry)
+            
+        except Exception as e:
+            if skip_errors:
+                from .console import print_warning
+                print_warning(f"Skipping {model_file.name}: {e}")
+                skipped_files.append(model_file.name)
+                continue
+            else:
+                raise
+    
+    # Check if we have any valid entries
+    if not model_entries:
+        if skipped_files:
+            raise ValueError(
+                f"No valid models found. All {len(skipped_files)} files were skipped due to errors. "
+                f"Files: {', '.join(skipped_files)}"
+            )
+        else:
+            raise ValueError("No model entries created (this shouldn't happen!)")
+    
+    # Report skipped files at the end
+    if skipped_files:
+        console.print(f"\n[yellow]⚠ Skipped {len(skipped_files)} file(s) due to errors:[/yellow]")
+        for skipped in skipped_files:
+            console.print(f"  [dim]- {skipped}[/dim]")
+    
+    # NOW calculate weights based on actual successful entries
+    if equal_weights:
+        weight = 1.0 / len(model_entries)
+        print_info(f"Setting equal weights: {weight:.4f} for each of {len(model_entries)} models")
+        for entry in model_entries:
+            entry.weight = weight
+    else:
+        # User will edit these manually
+        for entry in model_entries:
+            entry.weight = 1.0
     
     # Handle VAE if provided
-    vae_path = None
-    vae_hash = None
+    vae_entry = None
     if vae_file:
         if not vae_file.exists():
             raise FileNotFoundError(f"VAE file not found: {vae_file}")
-        vae_path = str(vae_file)
+        
+        vae_hash = None
+        vae_precision = None
+        
+        # Compute hash if requested
         if compute_hashes:
             print_info(f"Computing hash for VAE: {vae_file.name}...")
             vae_hash = compute_file_hash(vae_file)
-            console.print(f"  [dim]VAE SHA-256: {vae_hash}[/dim]")
+        
+        # Detect VAE precision
+        console.print(f"[cyan]Detecting VAE precision for {vae_file.name}...[/cyan]")
+        vae_state_dict, vae_metadata = load_vae(vae_file, device='cpu', compute_hash=False)
+        vae_precision = vae_metadata['precision']
+        del vae_state_dict  # Free memory
+        
+        vae_entry = VAEEntry(
+            path=str(vae_file),
+            sha256=vae_hash,
+            precision_detected=vae_precision
+        )
     
     # Generate output filename
     output_filename = generate_output_filename(model_files, detected_arch)
@@ -221,9 +327,8 @@ def scan_folder(
     # Create manifest
     manifest = MergeManifest(
         models=model_entries,
-        vae=vae_path,
-        vae_sha256=vae_hash,
-        output=output_filename,
+        vae=vae_entry,
+        output=OutputEntry(path=output_filename),  # Create OutputEntry with path
         output_precision='match',
         device='cpu',
         prune=True,
@@ -259,9 +364,9 @@ def validate_manifest(manifest: MergeManifest) -> List[str]:
     
     # Check VAE file exists
     if manifest.vae:
-        vae_path = Path(manifest.vae)
+        vae_path = Path(manifest.vae.path)  # Extract path string from VAEEntry
         if not vae_path.exists():
-            issues.append(f"VAE file not found: {manifest.vae}")
+            issues.append(f"VAE file not found: {manifest.vae.path}")
     
     # Check weights sum (warn, don't error)
     total_weight = sum(m.weight for m in manifest.models)
@@ -272,7 +377,9 @@ def validate_manifest(manifest: MergeManifest) -> List[str]:
         )
     
     # Check output directory exists/is writable
-    output_path = Path(manifest.output)
+    # Note: output is never None after __post_init__, but Pylance doesn't know that
+    assert manifest.output is not None, "Output should always be set"
+    output_path = Path(manifest.output.path)  # Extract path from OutputEntry
     output_dir = output_path.parent if output_path.parent != Path('.') else Path.cwd()
     if not output_dir.exists():
         issues.append(f"Output directory does not exist: {output_dir}")

@@ -159,8 +159,10 @@ def save_manifest_metadata(
     
     # Add VAE info if present
     if manifest.vae:
-        metadata['vae_path'] = manifest.vae
-        if manifest.vae_sha256:
-            metadata['vae_sha256'] = manifest.vae_sha256
+        metadata['vae_path'] = manifest.vae.path
+        if manifest.vae.sha256:
+            metadata['vae_sha256'] = manifest.vae.sha256
+        if manifest.vae.precision_detected:
+            metadata['vae_precision'] = manifest.vae.precision_detected
     
     return metadata

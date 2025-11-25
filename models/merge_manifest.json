@@ -1,0 +1,44 @@
+{
+  "models": [
+    {
+      "path": "models\\miaomiao3DHarem_lh3d10.safetensors",
+      "weight": 0.25,
+      "architecture": "Illustrious",
+      "sha256": "45e769fc3ef6f3a994fa60fee57d440e9a1fe626510c37a59f46ac83e2c61598",
+      "precision_detected": "fp16"
+    },
+    {
+      "path": "models\\miaomiaoHarem_v175.safetensors",
+      "weight": 0.25,
+      "architecture": "Illustrious",
+      "sha256": "59caf402100e47e66f5c7f6d794218f8c4dce9715063c46055d917d507fbca01",
+      "precision_detected": "fp16"
+    },
+    {
+      "path": "models\\miaomiaoMature_eps10.safetensors",
+      "weight": 0.25,
+      "architecture": "Illustrious",
+      "sha256": "3d8fa0a62b697844695e1a9066407d74a1b4bfd4907cbecbedcac83b3b32ab7d",
+      "precision_detected": "fp16"
+    },
+    {
+      "path": "models\\miaomiaoRealskin_epsV11.safetensors",
+      "weight": 0.25,
+      "architecture": "Illustrious",
+      "sha256": "0e3c52b44abdb081e5d8d2a25eaf0a072626fe8aea796cab5c284ecc81190441",
+      "precision_detected": "fp16"
+    }
+  ],
+  "vae": {
+    "path": "vae\\illustriousXL_v20.safetensors",
+    "sha256": "d7ed5ca5fd33ff846cf65f2efbb36d7a259258cbb70da71e711b2c612694ac00",
+    "precision_detected": "fp16"
+  },
+  "output": {
+    "path": "MiaoMiaoMegaMix_v1.safetensors"
+  },
+  "output_precision": "match",
+  "device": "cpu",
+  "prune": true,
+  "overwrite": true
+}

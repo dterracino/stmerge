@@ -30,14 +30,24 @@ def compute_file_hash(filepath: Path, chunk_size: int = 8192) -> str:
     Returns:
         Hex string of the SHA-256 hash
     """
-    sha256 = hashlib.sha256()
+    from .console import create_progress
     
-    with open(filepath, 'rb') as f:
-        while True:
-            chunk = f.read(chunk_size)
-            if not chunk:
-                break
-            sha256.update(chunk)
+    sha256 = hashlib.sha256()
+    file_size = filepath.stat().st_size
+    
+    with create_progress() as progress:
+        task = progress.add_task(
+            f"[cyan]Hashing {filepath.name}...",
+            total=file_size
+        )
+        
+        with open(filepath, 'rb') as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                sha256.update(chunk)
+                progress.advance(task, len(chunk))
     
     return sha256.hexdigest()
 

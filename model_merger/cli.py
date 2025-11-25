@@ -45,7 +45,8 @@ def cmd_scan(args):
             folder=folder,
             vae_file=vae_file,
             compute_hashes=args.compute_hashes,
-            equal_weights=not args.no_equal_weights
+            equal_weights=not args.no_equal_weights,
+            skip_errors=args.skip_errors
         )
     except Exception as e:
         print_error(f"Error scanning folder: {e}")
@@ -138,7 +139,7 @@ def cmd_merge(args):
     # Step 2: Bake VAE if specified
     if manifest.vae:
         try:
-            vae_path = Path(manifest.vae)
+            vae_path = Path(manifest.vae.path)  # Extract path from VAEEntry
             merged_dict = vae_module.bake_vae(
                 model_state_dict=merged_dict,
                 vae_path=vae_path,
@@ -185,7 +186,9 @@ def cmd_merge(args):
         )
         
         # Save model
-        output_path = Path(manifest.output)
+        # Note: output is never None after __post_init__, but Pylance doesn't know that
+        assert manifest.output is not None, "Output should always be set by __post_init__"
+        output_path = Path(manifest.output.path)  # Extract path from OutputEntry
         output_hash = saver_module.save_model(
             state_dict=merged_dict,
             output_path=output_path,
@@ -195,6 +198,14 @@ def cmd_merge(args):
         
         # Get file size
         size_mb = output_path.stat().st_size / (1024 * 1024)
+        
+        # Update the OutputEntry with hash and precision info
+        manifest.output.sha256 = output_hash
+        manifest.output.precision_written = target_precision
+        
+        # Write the updated manifest back
+        manifest.save(manifest_path)
+        print_success(f"Updated manifest with output info: {manifest_path}")
         
         # Print beautiful completion message
         print_completion(str(output_path), size_mb, output_hash)
@@ -260,6 +271,11 @@ Examples:
         '--no-equal-weights',
         action='store_true',
         help='Don\'t auto-calculate equal weights (weights will be 1.0, user must edit)'
+    )
+    scan_parser.add_argument(
+        '--skip-errors',
+        action='store_true',
+        help='Skip files that can\'t be loaded (useful when files are still copying)'
     )
     
     # Merge subcommand
