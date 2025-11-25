@@ -5,6 +5,7 @@ This package provides utilities for:
 - Scanning folders of models and generating merge manifests
 - Merging multiple models with configurable weights
 - Baking VAEs into merged models
+- Converting legacy checkpoint formats to safetensors
 - Saving results in safetensors format
 
 Main workflow:
@@ -12,9 +13,13 @@ Main workflow:
     2. Edit manifest to adjust weights
     3. Process manifest → merge models
     4. Save result with optional VAE baking
+    
+Or for conversion:
+    1. Convert old .ckpt file → safetensors
+    2. Now safe to use and merge!
 """
 
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 
 # Expose main classes and functions at package level
 from .config import (
@@ -55,6 +60,12 @@ from .saver import (
     save_manifest_metadata,
 )
 
+from .converter import (
+    convert_to_safetensors,
+    load_checkpoint,
+    extract_state_dict,
+)
+
 __all__ = [
     # Config
     'detect_architecture_from_filename',
@@ -87,4 +98,9 @@ __all__ = [
     # Saver
     'save_model',
     'save_manifest_metadata',
+    
+    # Converter
+    'convert_to_safetensors',
+    'load_checkpoint',
+    'extract_state_dict',
 ]

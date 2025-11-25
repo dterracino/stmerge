@@ -1,16 +1,19 @@
-# Model Merger
+# Model Merger v0.2.0
 
-A clean, simple tool for merging multiple Stable Diffusion models with optional VAE baking.
+A clean, simple tool for merging multiple Stable Diffusion models with optional VAE baking, plus safe conversion of legacy checkpoint formats.
 
 ## Features
 
 - ✨ **Multi-model merging** - Combine 2+ models with configurable weights
 - 🎯 **Accumulator pattern** - Memory-efficient streaming (only 2 models in RAM at once)
 - 🎨 **VAE baking** - Inject custom VAEs into merged models
+- 🔄 **Format converter** - Safely convert .ckpt/.pt/.pth/.bin to safetensors
 - 📝 **Manifest workflow** - Scan → Review → Merge with JSON configs
-- 🔒 **Safetensors only** - Fast, secure, portable (for now)
+- 🔒 **Security first** - Safe loading of legacy formats (no code execution!)
 - 🧹 **Auto-pruning** - Strips training artifacts to keep files lean
 - 🔍 **Architecture detection** - Guesses model types from filenames (Pony, SDXL, etc.)
+- ⏱️ **Performance tracking** - Shows elapsed time and file hashes for verification
+- 🎨 **Beautiful CLI** - Rich progress bars and formatted output
 
 ## Installation
 
@@ -24,11 +27,31 @@ pip install -r requirements.txt
 - Python 3.8+
 - PyTorch 2.0+
 - safetensors
-- tqdm
+- rich (for beautiful terminal output)
+- packaging (dependency of safetensors)
 
 ## Quick Start
 
-### The Simple Flow
+### Converting Legacy Models (New in v0.2!)
+
+Got old `.ckpt` or `.pt` files? Convert them safely to safetensors:
+
+```bash
+# Basic conversion (auto-prunes, creates model.safetensors)
+python run.py convert old_model.ckpt
+
+# With options
+python run.py convert model.pt --output new_name.safetensors --no-prune --overwrite
+```
+
+**Why convert?**
+
+- ✅ Security - Pickle files can contain malicious code
+- ✅ Speed - Safetensors loads 10x faster
+- ✅ Reliability - Can't get corrupted as easily
+- ✅ Compatibility - Works everywhere (ComfyUI, A1111, merging tools)
+
+### The Simple Merge Flow
 
 ```bash
 # 1. Scan a folder of models
@@ -59,6 +82,7 @@ python run.py scan ./models --vae vae.safetensors --output my_merge.json
 - `--output PATH` - Where to save the manifest (default: `folder/merge_manifest.json`)
 - `--compute-hashes` - Calculate SHA-256 hashes for input models/VAE (slow but useful)
 - `--no-equal-weights` - Don't auto-calculate equal weights (you'll edit them manually)
+- `--skip-errors` - Skip files that can't be loaded (useful when files are still copying)
 
 **What happens:**
 
@@ -84,7 +108,8 @@ The generated manifest looks like this:
       "path": "/path/to/model1.safetensors",
       "weight": 0.25,
       "architecture": "Pony",
-      "precision_detected": "fp16"
+      "precision_detected": "fp16",
+      "sha256": "abc123..." // Optional, if --compute-hashes used
     },
     {
       "path": "/path/to/model2.safetensors",
@@ -93,8 +118,16 @@ The generated manifest looks like this:
       "precision_detected": "fp16"
     }
   ],
-  "vae": "/path/to/vae.safetensors",
-  "output": "Pony_Model1_Model2_merged.safetensors",
+  "vae": {
+    "path": "/path/to/vae.safetensors",
+    "sha256": "def456...",
+    "precision_detected": "fp16"
+  },
+  "output": {
+    "path": "Pony_Model1_Model2_merged.safetensors",
+    "sha256": "789xyz...", // Filled in after merge
+    "precision_written": "fp16" // Filled in after merge
+  },
   "output_precision": "match",
   "device": "cpu",
   "prune": true,
@@ -105,6 +138,8 @@ The generated manifest looks like this:
 **Key fields:**
 
 - `models[].weight` - How much each model contributes (can be any value, don't need to sum to 1.0)
+- `vae` - Structured object with path, hash, and precision (or `null` if no VAE)
+- `output` - Structured object that gets populated with hash and precision after merge
 - `output_precision` - `"match"` uses first model's precision, or specify `"fp16"` / `"fp32"`
 - `device` - `"cpu"` (default, safest) or `"cuda"` (if you have VRAM to spare)
 - `prune` - Remove training artifacts (recommended, saves space)
@@ -124,6 +159,9 @@ python run.py merge --manifest my_merge.json
 
 - `--overwrite` - Overwrite output file (overrides manifest setting)
 - `--device cpu|cuda` - Force specific device (overrides manifest setting)
+- `--no-prune` - Disable pruning (overrides manifest setting)
+
+**CLI overrides:** When you use these flags, they update the manifest file! So the manifest always reflects what actually happened in the merge. This makes it a true "build record" of your merge.
 
 **What happens:**
 
@@ -262,6 +300,8 @@ model_merger/
 ├── merger.py         # Core accumulator merge logic
 ├── vae.py            # VAE baking
 ├── saver.py          # Save merged models
+├── converter.py      # Convert legacy formats to safetensors
+├── console.py        # Rich UI formatting and progress bars
 └── cli.py            # Command-line interface
 
 run.py                # Entry point
@@ -269,15 +309,22 @@ run.py                # Entry point
 
 Each module has a single, clear responsibility. Easy to test, easy to extend!
 
-## Roadmap (v2)
+## Roadmap
 
-Future enhancements:
+**v0.2.0 - ✅ Complete!**
 
-- [ ] Convert .ckpt/.pt files to safetensors
-- [ ] Progress bars for hash computation
+- [x] Convert .ckpt/.pt files to safetensors
+- [x] Progress bars with elapsed time tracking
+- [x] Beautiful Rich-powered CLI output
+- [x] CLI override persistence to manifest
+- [x] Skip-errors mode for scanning
+
+**v0.3.0 - Future ideas:**
+
 - [ ] Validate model compatibility before loading (peek at metadata)
 - [ ] Extract VAE from merged model
-- [ ] Batch scanning (multiple folders)
+- [ ] Batch conversion (convert entire folders)
+- [ ] Block-weighted merging (different weights per layer)
 - [ ] Interactive TUI for editing manifests
 - [ ] API lookup for model hashes (CivitAI, HuggingFace)
 

@@ -16,6 +16,7 @@ from . import merger as merger_module
 from . import vae as vae_module
 from . import saver as saver_module
 from . import loader as loader_module
+from . import converter as converter_module
 from .console import (
     console, print_header, print_section, print_success, print_error, 
     print_warning, print_info, print_manifest_summary, print_completion,
@@ -75,6 +76,59 @@ def cmd_scan(args):
     return 0
 
 
+def cmd_convert(args) -> int:
+    """Handle the convert subcommand."""
+    input_path = Path(args.input)
+    
+    # Print header
+    print_header("🔄 Model Merger - Convert Mode 🔄")
+    
+    # Check input exists
+    if not input_path.exists():
+        print_error(f"Input file not found: {input_path}")
+        return 1
+    
+    # Determine output path
+    output_path = Path(args.output) if args.output else None
+    
+    # Convert!
+    try:
+        # Start timing
+        start_time = time.time()
+        
+        output_hash = converter_module.convert_to_safetensors(
+            input_path=input_path,
+            output_path=output_path,
+            prune=not args.no_prune,  # Default is True, --no-prune makes it False
+            compute_hash=args.compute_hash,
+            overwrite=args.overwrite
+        )
+        
+        # Calculate elapsed time
+        elapsed_seconds = time.time() - start_time
+        
+        # Get the actual output path that was used
+        if output_path is None:
+            output_path = input_path.with_suffix('.safetensors')
+        
+        # Get file size
+        size_mb = output_path.stat().st_size / (1024 * 1024)
+        
+        # Print completion message
+        print_completion(str(output_path), size_mb, output_hash, elapsed_seconds)
+        
+        # Helpful tip
+        console.print()
+        print_info("You can now use this model in ComfyUI, A1111, or merge it with other models!")
+        print_info(f"Consider deleting the original: [dim]{input_path}[/dim]")
+        
+    except Exception as e:
+        print_error(f"Conversion failed: {e}")
+        return 1
+    
+    return 0
+
+
 def cmd_merge(args):
     """
     Handle the 'merge' subcommand.
@@ -102,6 +156,8 @@ def cmd_merge(args):
         manifest.overwrite = True
     if args.device:
         manifest.device = args.device
+    if args.no_prune:
+        manifest.prune = False  # CLI says don't prune, update manifest
     
     # Display manifest summary
     print_manifest_summary(manifest)
@@ -208,8 +264,10 @@ def cmd_merge(args):
         manifest.output.precision_written = target_precision
         
         # Write the updated manifest back
+        # This includes any CLI overrides (--no-prune, --device, etc.) so the manifest
+        # reflects what ACTUALLY happened in this merge
         manifest.save(manifest_path)
-        print_success(f"Updated manifest with output info: {manifest_path}")
+        print_success(f"Manifest updated with merge results: {manifest_path}")
         
         # Calculate total elapsed time
         elapsed_seconds = time.time() - start_time
@@ -308,6 +366,43 @@ Examples:
         choices=['cpu', 'cuda'],
         help='Device to use for merging (overrides manifest setting)'
     )
+    merge_parser.add_argument(
+        '--no-prune',
+        action='store_true',
+        help='Don\'t prune unnecessary keys (overrides manifest setting)'
+    )
+    
+    # Convert subcommand
+    convert_parser = subparsers.add_parser(
+        'convert',
+        help='Convert legacy checkpoint formats (.ckpt/.pt/.pth/.bin) to safetensors'
+    )
+    convert_parser.add_argument(
+        'input',
+        type=str,
+        help='Input checkpoint file to convert'
+    )
+    convert_parser.add_argument(
+        '--output',
+        '-o',
+        type=str,
+        help='Output path (default: same name with .safetensors extension)'
+    )
+    convert_parser.add_argument(
+        '--no-prune',
+        action='store_true',
+        help='Don\'t prune unnecessary keys (keep training state, optimizer, etc.)'
+    )
+    convert_parser.add_argument(
+        '--compute-hash',
+        action='store_true',
+        help='Compute SHA-256 hash of input file (slow but provides verification)'
+    )
+    convert_parser.add_argument(
+        '--overwrite',
+        action='store_true',
+        help='Overwrite output file if it exists'
+    )
     
     # Parse arguments
     args = parser.parse_args()
@@ -317,6 +412,8 @@ Examples:
         return cmd_scan(args)
     elif args.command == 'merge':
         return cmd_merge(args)
+    elif args.command == 'convert':
+        return cmd_convert(args)
     else:
         parser.print_help()
         return 1

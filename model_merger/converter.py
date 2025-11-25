@@ -1,0 +1,290 @@
+"""
+Checkpoint format converter.
+
+This module handles converting legacy checkpoint formats (.ckpt, .pt, .pth, .bin)
+to the modern safetensors format. It uses safe loading (weights_only=True) to
+prevent arbitrary code execution from pickle files.
+
+Key safety features:
+- Only loads with weights_only=True (refuses to execute code)
+- Validates that we actually got tensors
+- Prunes unnecessary keys by default
+- Clear error messages for suspicious files
+"""
+
+import gc
+import torch
+from pathlib import Path
+from typing import Dict, Optional, Tuple, Any
+
+from . import config
+from .loader import compute_file_hash
+from .saver import save_model
+from .console import console, print_warning, print_error, print_success, print_info
+
+# Supported input formats
+LEGACY_FORMATS = {'.ckpt', '.pt', '.pth', '.bin'}
+
+
+def detect_checkpoint_format(checkpoint: Dict[str, Any]) -> str:
+    """
+    Detect the format/structure of a loaded checkpoint.
+    
+    Checkpoints can be structured in different ways:
+    - Bare state dict: {'model.layer.weight': tensor, ...}
+    - Wrapped: {'state_dict': {...}, 'optimizer_state': {...}, ...}
+    - Training checkpoint: {'model': {...}, 'epoch': 42, ...}
+    
+    Args:
+        checkpoint: The loaded checkpoint dictionary
+        
+    Returns:
+        Format identifier: 'bare', 'wrapped', or 'nested'
+    """
+    # Check if it looks like a bare state dict
+    # (all keys are strings with dots, values are tensors)
+    if all(isinstance(k, str) and '.' in k for k in list(checkpoint.keys())[:10]):
+        # Sample a few values to see if they're tensors
+        sample_values = [v for k, v in list(checkpoint.items())[:5]]
+        if all(isinstance(v, torch.Tensor) for v in sample_values):
+            return 'bare'
+    
+    # Check for wrapped format (has 'state_dict' key)
+    if 'state_dict' in checkpoint:
+        return 'wrapped'
+    
+    # Check for nested format (has 'model' key)
+    if 'model' in checkpoint:
+        return 'nested'
+    
+    # Unknown format
+    return 'unknown'
+
+
+def extract_state_dict(checkpoint: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+    """
+    Extract the state dictionary from a checkpoint.
+    
+    Navigates different checkpoint structures to find the actual model weights.
+    Removes training state, optimizer state, and other metadata.
+    
+    Args:
+        checkpoint: Loaded checkpoint dictionary
+        
+    Returns:
+        Clean state dict with just model tensors
+        
+    Raises:
+        ValueError: If we can't find valid tensors in the checkpoint
+    """
+    format_type = detect_checkpoint_format(checkpoint)
+    
+    if format_type == 'bare':
+        # Already a state dict, just return it
+        console.print("[dim]  Format: Bare state dict[/dim]")
+        return checkpoint
+    
+    elif format_type == 'wrapped':
+        # Extract from 'state_dict' key
+        console.print("[dim]  Format: Wrapped (has 'state_dict' key)[/dim]")
+        state_dict = checkpoint['state_dict']
+        
+        # Validate it's actually tensors
+        if not isinstance(state_dict, dict):
+            raise ValueError("'state_dict' key doesn't contain a dictionary!")
+        
+        return state_dict
+    
+    elif format_type == 'nested':
+        # Extract from 'model' key
+        console.print("[dim]  Format: Nested (has 'model' key)[/dim]")
+        model_data = checkpoint['model']
+        
+        # Sometimes 'model' contains another layer of nesting
+        if isinstance(model_data, dict) and 'state_dict' in model_data:
+            return model_data['state_dict']
+        elif isinstance(model_data, dict):
+            return model_data
+        else:
+            raise ValueError("'model' key doesn't contain a valid state dict!")
+    
+    else:
+        # Unknown format - try to be helpful
+        keys = list(checkpoint.keys())
+        raise ValueError(
+            f"Unknown checkpoint format!\n"
+            f"Top-level keys: {keys[:10]}\n"
+            f"Expected one of: bare state dict, 'state_dict' key, or 'model' key"
+        )
+
+
+def load_checkpoint(
+    filepath: Path,
+    device: str = 'cpu'
+) -> Tuple[Dict[str, torch.Tensor], Dict[str, Any]]:
+    """
+    Load a checkpoint file safely (weights only, no code execution).
+    
+    Supports .ckpt, .pt, .pth, and .bin formats. Uses PyTorch's weights_only=True
+    to prevent arbitrary code execution from pickle files.
+    
+    Args:
+        filepath: Path to checkpoint file
+        device: Device to load tensors to (default: 'cpu')
+        
+    Returns:
+        Tuple of (state_dict, metadata) where metadata contains file info
+        
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        ValueError: If file format is unsupported or contains suspicious content
+        RuntimeError: If safe loading fails
+    """
+    if not filepath.exists():
+        raise FileNotFoundError(f"Checkpoint file not found: {filepath}")
+    
+    if filepath.suffix.lower() not in LEGACY_FORMATS:
+        raise ValueError(
+            f"Unsupported file format: {filepath.suffix}\n"
+            f"Supported formats: {', '.join(LEGACY_FORMATS)}"
+        )
+    
+    console.print(f"[cyan]Loading checkpoint:[/cyan] {filepath.name}")
+    console.print(f"[yellow]⚠ Warning:[/yellow] Loading pickle file (legacy format)")
+    
+    try:
+        # CRITICAL: Load with weights_only=True to prevent code execution!
+        # This is the safety feature that prevents malicious pickles from running code
+        console.print("[dim]  Using safe mode (weights_only=True)...[/dim]")
+        
+        checkpoint = torch.load(
+            filepath,
+            map_location=device,
+            weights_only=True  # ← THE CRITICAL SAFETY LINE
+        )
+        
+    except Exception as e:
+        # If safe loading fails, we refuse to proceed
+        raise RuntimeError(
+            f"Cannot load {filepath.name} safely!\n\n"
+            f"This file either:\n"
+            f"  • Contains executable code (DANGEROUS!)\n"
+            f"  • Uses an incompatible pickle format\n"
+            f"  • Is corrupted\n\n"
+            f"Error: {e}\n\n"
+            f"For your safety, this tool will NOT attempt unsafe loading.\n"
+            f"Only convert files from trusted sources!"
+        )
+    
+    # Extract the actual state dict
+    try:
+        state_dict = extract_state_dict(checkpoint)
+    except ValueError as e:
+        raise ValueError(f"Failed to extract model weights: {e}")
+    
+    # Validate we got tensors
+    if not state_dict:
+        raise ValueError("Checkpoint contains no model weights!")
+    
+    # Sample a few values to make sure they're actually tensors
+    sample_values = [v for k, v in list(state_dict.items())[:5]]
+    if not all(isinstance(v, torch.Tensor) for v in sample_values):
+        raise ValueError("Checkpoint contains non-tensor data in state dict!")
+    
+    # Build metadata
+    metadata = {
+        'filename': filepath.name,
+        'format': filepath.suffix,
+        'num_keys': len(state_dict),
+    }
+    
+    console.print(f"  [dim]Loaded {len(state_dict)} tensors[/dim]")
+    
+    return state_dict, metadata
+
+
+def convert_to_safetensors(
+    input_path: Path,
+    output_path: Optional[Path] = None,
+    prune: bool = True,
+    compute_hash: bool = False,
+    overwrite: bool = False
+) -> str:
+    """
+    Convert a checkpoint file to safetensors format.
+    
+    Main conversion function that orchestrates the entire process:
+    1. Load checkpoint safely (weights_only mode)
+    2. Extract state dict
+    3. Optionally prune unnecessary keys
+    4. Save as safetensors
+    5. Optionally compute output hash
+    
+    Args:
+        input_path: Path to input checkpoint (.ckpt/.pt/.pth/.bin)
+        output_path: Output path (default: same name with .safetensors extension)
+        prune: Whether to prune non-model keys (default: True)
+        compute_hash: Whether to compute SHA-256 hash (default: False, it's slow!)
+        overwrite: Whether to overwrite existing output file
+        
+    Returns:
+        SHA-256 hash of the output file (for verification)
+        
+    Raises:
+        Various exceptions if loading/conversion fails
+    """
+    # Determine output path
+    if output_path is None:
+        output_path = input_path.with_suffix('.safetensors')
+    else:
+        output_path = Path(output_path)
+    
+    # Check if output exists
+    if output_path.exists() and not overwrite:
+        raise FileExistsError(
+            f"Output file already exists: {output_path}\n"
+            f"Use --overwrite to replace it."
+        )
+    
+    # Load the checkpoint
+    state_dict, metadata = load_checkpoint(input_path, device='cpu')
+    
+    # Optionally prune unnecessary keys
+    if prune:
+        console.print("\n[cyan]Pruning unnecessary keys...[/cyan]")
+        original_count = len(state_dict)
+        
+        # Use the same pruning logic as merging
+        pruned = {}
+        for key, tensor in state_dict.items():
+            if not config.should_prune_key(key):
+                pruned[key] = tensor
+        
+        removed_count = original_count - len(pruned)
+        console.print(f"  [dim]Removed {removed_count} keys, kept {len(pruned)} keys[/dim]")
+        
+        state_dict = pruned
+    
+    # Save as safetensors
+    console.print(f"\n[cyan]Saving as safetensors:[/cyan] {output_path.name}")
+    
+    # Build metadata for the safetensors file
+    save_metadata = {
+        'converted_from': metadata['filename'],
+        'original_format': metadata['format'],
+        'pruned': 'true' if prune else 'false',
+    }
+    
+    # Save using our existing saver module (returns hash)
+    output_hash = save_model(
+        state_dict=state_dict,
+        output_path=output_path,
+        overwrite=overwrite,
+        metadata=save_metadata
+    )
+    
+    # Aggressive cleanup
+    del state_dict
+    gc.collect()
+    
+    return output_hash
