@@ -149,4 +149,7 @@ Thumbs.db
 *.pt
 *.pth
 *.bin
+
+# Manifest files
 merge_manifest.json
+
