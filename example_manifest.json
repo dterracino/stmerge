@@ -4,28 +4,33 @@
       "path": "/path/to/pony_realistic_v2.safetensors",
       "weight": 0.25,
       "architecture": "Pony",
-      "precision_detected": "fp16"
+      "precision_detected": "fp16",
+      "sha256": "a1b2c3d4e5f6789..."
     },
     {
       "path": "/path/to/pony_furry_enhanced.safetensors",
       "weight": 0.25,
       "architecture": "Pony",
-      "precision_detected": "fp16"
+      "precision_detected": "fp16",
+      "sha256": "b2c3d4e5f6789a1..."
     },
     {
       "path": "/path/to/pony_semi_realistic.safetensors",
       "weight": 0.25,
       "architecture": "Pony",
-      "precision_detected": "fp16"
+      "precision_detected": "fp16",
+      "sha256": "c3d4e5f6789a1b2..."
     },
     {
       "path": "/path/to/pony_artistic_style.safetensors",
       "weight": 0.25,
       "architecture": "Pony",
-      "precision_detected": "fp16"
+      "precision_detected": "fp16",
+      "sha256": "d4e5f6789a1b2c3..."
     }
   ],
   "vae": "/path/to/sdxl_vae.safetensors",
+  "vae_sha256": "e5f6789a1b2c3d4...",
   "output": "Pony_PonyReal_PonyFurr_PonySemi_merged.safetensors",
   "output_precision": "match",
   "device": "cpu",

@@ -12,6 +12,7 @@ from safetensors.torch import save_file
 from tqdm import tqdm
 
 from . import config
+from .loader import compute_file_hash
 
 
 def ensure_contiguous(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -106,10 +107,17 @@ def save_model(
         # Get file size for reporting
         size_mb = output_path.stat().st_size / (1024 * 1024)
         
+        # Compute hash of output file
+        print("\nComputing SHA-256 hash of output file...")
+        output_hash = compute_file_hash(output_path)
+        
         print(f"\n✓ Model saved successfully!")
         print(f"  Location: {output_path}")
         print(f"  Size: {size_mb:.2f} MB")
         print(f"  Tensors: {len(state_dict)}")
+        print(f"  SHA-256: {output_hash}")
+        
+        return output_hash
         
     except Exception as e:
         raise OSError(f"Failed to save model: {e}")

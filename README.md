@@ -20,6 +20,7 @@ pip install -r requirements.txt
 ```
 
 **Requirements:**
+
 - Python 3.8+
 - PyTorch 2.0+
 - safetensors
@@ -53,17 +54,24 @@ python run.py scan ./models --vae vae.safetensors --output my_merge.json
 ```
 
 **Options:**
+
 - `--vae PATH` - VAE file to bake into the merged model
 - `--output PATH` - Where to save the manifest (default: `folder/merge_manifest.json`)
-- `--compute-hashes` - Calculate SHA-256 hashes (slow but useful for verification)
+- `--compute-hashes` - Calculate SHA-256 hashes for input models/VAE (slow but useful)
 - `--no-equal-weights` - Don't auto-calculate equal weights (you'll edit them manually)
 
 **What happens:**
+
 1. Finds all `.safetensors` in the folder
 2. Detects architecture from filenames (Pony, SDXL, Illustrious, etc.)
-3. Assigns equal weights (1/N for each model)
-4. Generates a smart output filename
-5. Saves a JSON manifest you can review/edit
+3. Detects precision (fp16/fp32) for each model
+4. Optionally computes SHA-256 hashes (with `--compute-hashes`)
+5. Assigns equal weights (1/N for each model)
+6. Generates a smart output filename
+7. Saves a JSON manifest you can review/edit
+
+**Note on hashing:** Computing hashes for 8x 7GB models takes time (several minutes).
+The output model hash is ALWAYS computed after merging - that's quick since it's just one file!
 
 ### The Manifest File
 
@@ -95,6 +103,7 @@ The generated manifest looks like this:
 ```
 
 **Key fields:**
+
 - `models[].weight` - How much each model contributes (can be any value, don't need to sum to 1.0)
 - `output_precision` - `"match"` uses first model's precision, or specify `"fp16"` / `"fp32"`
 - `device` - `"cpu"` (default, safest) or `"cuda"` (if you have VRAM to spare)
@@ -112,10 +121,12 @@ python run.py merge --manifest my_merge.json
 ```
 
 **Options:**
+
 - `--overwrite` - Overwrite output file (overrides manifest setting)
 - `--device cpu|cuda` - Force specific device (overrides manifest setting)
 
 **What happens:**
+
 1. Loads and validates the manifest
 2. Checks model compatibility (matching shapes)
 3. Merges models using weighted accumulation
@@ -125,7 +136,8 @@ python run.py merge --manifest my_merge.json
 7. Saves the result
 
 The merge uses an **accumulator pattern** that only keeps 2 models in memory at once:
-```
+
+```text
 result = model1 * weight1
 result += model2 * weight2  (load, add, free)
 result += model3 * weight3  (load, add, free)
@@ -164,11 +176,13 @@ If you have VRAM to spare, merging on GPU is ~50x faster:
 ### Precision Control
 
 **Match first model** (default):
+
 ```json
 "output_precision": "match"
 ```
 
 **Force specific precision:**
+
 ```json
 "output_precision": "fp16"  // or "fp32"
 ```
@@ -178,6 +192,7 @@ Why fp16? It halves file size with minimal quality loss. Most modern models are 
 ### Architecture Detection
 
 The scanner tries to guess model architecture from filenames:
+
 - `pony_realistic_v2.safetensors` → "Pony"
 - `illustrious_anime.safetensors` → "Illustrious"
 - `my_cool_model_sdxl.safetensors` → "SDXL"
@@ -189,21 +204,26 @@ If it guesses wrong, just edit the manifest! This is mainly for naming/organizat
 ### Tournament vs True Blend
 
 **Tournament style** (what you were doing manually):
-```
+
+```text
 Round 1: (A+B)/2 → AB, (C+D)/2 → CD
 Round 2: (AB+CD)/2 → ABCD
 ```
+
 Problem: A and B get diluted more than C and D!
 
 **This tool's approach** (accumulator):
-```
+
+```text
 result = A*0.25 + B*0.25 + C*0.25 + D*0.25
 ```
+
 All models contribute equally. Much better! 🎯
 
 ### When Models Won't Merge
 
 If you get "models are incompatible" errors, it means:
+
 - They have different architectures (Pony vs Illustrious)
 - They have different tensor shapes (can't merge!)
 
@@ -212,17 +232,20 @@ Solution: Only merge models from the same family. Use the architecture detection
 ### VAE Baking
 
 Why bake a VAE?
+
 - Different VAEs affect colors, contrast, detail
 - Some VAEs are optimized for specific styles
 - Baking is permanent - no need to load VAE separately during generation
 
 When to skip VAE baking:
+
 - You want flexibility to swap VAEs later
 - Your generation tool loads VAEs separately anyway
 
 ### File Size
 
 A typical SDXL model:
+
 - Raw merged: ~6.5GB (fp32) or ~3.3GB (fp16)
 - After pruning: ~6.2GB (fp32) or ~3.1GB (fp16)
 
@@ -230,7 +253,7 @@ Pruning removes ~200-400MB of training artifacts. Always recommended!
 
 ## Project Structure
 
-```
+```text
 model_merger/
 ├── __init__.py       # Package exports
 ├── config.py         # Constants, patterns, defaults
@@ -249,6 +272,7 @@ Each module has a single, clear responsibility. Easy to test, easy to extend!
 ## Roadmap (v2)
 
 Future enhancements:
+
 - [ ] Convert .ckpt/.pt files to safetensors
 - [ ] Progress bars for hash computation
 - [ ] Validate model compatibility before loading (peek at metadata)
@@ -259,25 +283,30 @@ Future enhancements:
 
 ## Troubleshooting
 
-**"Model file not found"**
+### "Model file not found"
+
 - Check paths in manifest are absolute or relative to where you run the script
 - Manifest might have been generated on different machine with different paths
 
-**"Models are incompatible"**
+### "Models are incompatible"
+
 - Only merge models from same architecture family
 - Check that models aren't corrupted (try loading in your SD UI first)
 
-**"Out of memory"**
+### "Out of memory"
+
 - Use `"device": "cpu"` instead of CUDA
 - Close other applications
 - Merge fewer models at once
 
-**"Output file exists"**
+### "Output file exists"
+
 - Use `--overwrite` flag or change output filename in manifest
 
 ## Contributing
 
 This is a clean, focused tool. If you want to add features:
+
 1. Keep separation of concerns (one module = one job)
 2. Follow existing code style
 3. Add docstrings!

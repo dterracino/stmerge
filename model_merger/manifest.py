@@ -206,10 +206,13 @@ def scan_folder(
     vae_path = None
     vae_hash = None
     if vae_file:
+        if not vae_file.exists():
+            raise FileNotFoundError(f"VAE file not found: {vae_file}")
         vae_path = str(vae_file)
         if compute_hashes:
-            print(f"Computing hash for VAE: {vae_file.name}...")
+            print(f"\nComputing hash for VAE: {vae_file.name}...")
             vae_hash = compute_file_hash(vae_file)
+            print(f"  VAE SHA-256: {vae_hash}")
     
     # Generate output filename
     output_filename = generate_output_filename(model_files, detected_arch)

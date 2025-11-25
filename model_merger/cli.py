@@ -177,7 +177,7 @@ def cmd_merge(args):
         
         # Save model
         output_path = Path(manifest.output)
-        saver_module.save_model(
+        output_hash = saver_module.save_model(
             state_dict=merged_dict,
             output_path=output_path,
             overwrite=manifest.overwrite,
@@ -188,6 +188,9 @@ def cmd_merge(args):
         print("🎉 MERGE COMPLETE! 🎉")
         print("=" * 60)
         print(f"Your merged model is ready at: {output_path}")
+        print(f"Output SHA-256: {output_hash}")
+        print("\n💡 Tip: Save this hash! You can use it to verify file integrity")
+        print("   or look up the model on CivitAI/HuggingFace later.")
         
     except Exception as e:
         print(f"\nError saving model: {e}")
