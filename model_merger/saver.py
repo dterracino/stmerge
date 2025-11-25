@@ -9,10 +9,10 @@ import torch
 from pathlib import Path
 from typing import Dict, Optional
 from safetensors.torch import save_file
-from tqdm import tqdm
 
 from . import config
 from .loader import compute_file_hash
+from .console import console, create_progress, print_info
 
 
 def ensure_contiguous(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -35,14 +35,17 @@ def ensure_contiguous(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Te
     Returns:
         State dict with all tensors contiguous
     """
-    print("\nEnsuring tensors are contiguous...")
+    console.print("\n[cyan]Ensuring tensors are contiguous...[/cyan]")
     
     contiguous_dict = {}
-    for key, tensor in tqdm(state_dict.items(), desc="Checking contiguity"):
-        if not tensor.is_contiguous():
-            contiguous_dict[key] = tensor.contiguous()
-        else:
-            contiguous_dict[key] = tensor
+    with create_progress() as progress:
+        task = progress.add_task("Checking contiguity", total=len(state_dict))
+        for key, tensor in state_dict.items():
+            if not tensor.is_contiguous():
+                contiguous_dict[key] = tensor.contiguous()
+            else:
+                contiguous_dict[key] = tensor
+            progress.advance(task)
     
     return contiguous_dict
 
@@ -88,8 +91,7 @@ def save_model(
     # Create output directory if it doesn't exist
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
-    print(f"\nSaving merged model to: {output_path}")
-    print("=" * 60)
+    console.print(f"\n[cyan]Saving merged model to:[/cyan] {output_path}")
     
     # Ensure tensors are contiguous (safetensors requirement)
     state_dict = ensure_contiguous(state_dict)
@@ -101,7 +103,7 @@ def save_model(
     # Convert all metadata values to strings
     str_metadata = {k: str(v) for k, v in save_metadata.items()}
     
-    print(f"Writing {len(state_dict)} tensors to disk...")
+    console.print(f"  [cyan]Writing {len(state_dict)} tensors to disk...[/cyan]")
     
     try:
         # Save as safetensors
@@ -111,15 +113,11 @@ def save_model(
         size_mb = output_path.stat().st_size / (1024 * 1024)
         
         # Compute hash of output file
-        print("\nComputing SHA-256 hash of output file...")
+        print_info("Computing SHA-256 hash of output file...")
         output_hash = compute_file_hash(output_path)
         
-        print(f"\n✓ Model saved successfully!")
-        print(f"  Location: {output_path}")
-        print(f"  Size: {size_mb:.2f} MB")
-        print(f"  Tensors: {len(state_dict)}")
-        print(f"  SHA-256: {output_hash}")
-        
+        # We'll let the CLI handle the fancy completion message
+        # Just return the data it needs
         return output_hash
         
     except Exception as e:

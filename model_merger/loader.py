@@ -10,9 +10,9 @@ import torch
 from pathlib import Path
 from typing import Dict, Tuple, Optional, Any
 from safetensors.torch import load_file
-from tqdm import tqdm
 
 from . import config
+from .console import console, print_info
 
 
 def compute_file_hash(filepath: Path, chunk_size: int = 8192) -> str:
@@ -99,7 +99,7 @@ def load_model(
         raise ValueError(f"Unsupported file format: {filepath.suffix}. "
                         f"Supported formats: {config.SUPPORTED_MODEL_EXTENSIONS}")
     
-    print(f"Loading model: {filepath.name}")
+    console.print(f"[cyan]Loading model:[/cyan] {filepath.name}")
     
     # Load the state dict
     state_dict = load_file(str(filepath), device=device)
@@ -115,10 +115,10 @@ def load_model(
     
     # Optionally compute hash (slow!)
     if compute_hash:
-        print(f"  Computing hash for {filepath.name}...")
+        print_info(f"Computing hash for {filepath.name}...")
         metadata['hash'] = compute_file_hash(filepath)
     
-    print(f"  Loaded {len(state_dict)} keys, precision: {precision}")
+    console.print(f"  [dim]Loaded {len(state_dict)} keys, precision: {precision}[/dim]")
     
     return state_dict, metadata
 
@@ -153,7 +153,7 @@ def load_vae(
     if filepath.suffix not in config.SUPPORTED_VAE_EXTENSIONS:
         raise ValueError(f"Unsupported VAE format: {filepath.suffix}")
     
-    print(f"Loading VAE: {filepath.name}")
+    console.print(f"[cyan]Loading VAE:[/cyan] {filepath.name}")
     
     # Load the state dict
     state_dict = load_file(str(filepath), device=device)
@@ -169,10 +169,10 @@ def load_vae(
     
     # Optionally compute hash
     if compute_hash:
-        print(f"  Computing hash for {filepath.name}...")
+        print_info(f"Computing hash for {filepath.name}...")
         metadata['hash'] = compute_file_hash(filepath)
     
-    print(f"  Loaded VAE with {len(state_dict)} keys, precision: {precision}")
+    console.print(f"  [dim]Loaded VAE with {len(state_dict)} keys, precision: {precision}[/dim]")
     
     return state_dict, metadata
 

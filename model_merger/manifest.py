@@ -13,6 +13,7 @@ from dataclasses import dataclass, asdict
 
 from . import config
 from .loader import compute_file_hash, load_model
+from .console import console, print_info, print_success
 
 
 @dataclass
@@ -73,7 +74,7 @@ class MergeManifest:
         """Save manifest to JSON file."""
         with open(filepath, 'w') as f:
             json.dump(self.to_dict(), f, indent=2)
-        print(f"Manifest saved to: {filepath}")
+        print_success(f"Manifest saved to: {filepath}")
     
     @classmethod
     def load(cls, filepath: Path) -> 'MergeManifest':
@@ -162,12 +163,12 @@ def scan_folder(
     if not model_files:
         raise ValueError(f"No .safetensors files found in {folder}")
     
-    print(f"Found {len(model_files)} model files in {folder}")
+    console.print(f"[cyan]Found {len(model_files)} model files in {folder}[/cyan]")
     
     # Detect architecture from first file (assume all same architecture)
     first_file = model_files[0]
     detected_arch = config.detect_architecture_from_filename(first_file.name)
-    print(f"Detected architecture: {detected_arch} (from {first_file.name})")
+    print_info(f"Detected architecture: [bold]{detected_arch}[/bold] (from {first_file.name})")
     
     # Calculate equal weights if requested
     if equal_weights:
@@ -184,11 +185,11 @@ def scan_folder(
         # Optionally compute hash
         file_hash = None
         if compute_hashes:
-            print(f"Computing hash for {model_file.name}...")
+            print_info(f"Computing hash for {model_file.name}...")
             file_hash = compute_file_hash(model_file)
         
         # Load model briefly to detect precision
-        print(f"Detecting precision for {model_file.name}...")
+        console.print(f"[cyan]Detecting precision for {model_file.name}...[/cyan]")
         state_dict, metadata = load_model(model_file, device='cpu', compute_hash=False)
         precision = metadata['precision']
         del state_dict  # Free memory immediately
@@ -210,9 +211,9 @@ def scan_folder(
             raise FileNotFoundError(f"VAE file not found: {vae_file}")
         vae_path = str(vae_file)
         if compute_hashes:
-            print(f"\nComputing hash for VAE: {vae_file.name}...")
+            print_info(f"Computing hash for VAE: {vae_file.name}...")
             vae_hash = compute_file_hash(vae_file)
-            print(f"  VAE SHA-256: {vae_hash}")
+            console.print(f"  [dim]VAE SHA-256: {vae_hash}[/dim]")
     
     # Generate output filename
     output_filename = generate_output_filename(model_files, detected_arch)

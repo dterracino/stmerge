@@ -15,6 +15,11 @@ from . import merger as merger_module
 from . import vae as vae_module
 from . import saver as saver_module
 from . import loader as loader_module
+from .console import (
+    console, print_header, print_section, print_success, print_error, 
+    print_warning, print_info, print_manifest_summary, print_completion,
+    print_validation_issues
+)
 
 
 def cmd_scan(args):
@@ -25,10 +30,13 @@ def cmd_scan(args):
     """
     folder = Path(args.folder)
     
+    # Print header
+    print_header("🎨 Model Merger - Scan Mode 🎨")
+    
     # Handle VAE if provided
     vae_file = Path(args.vae) if args.vae else None
     if vae_file and not vae_file.exists():
-        print(f"Error: VAE file not found: {vae_file}")
+        print_error(f"VAE file not found: {vae_file}")
         return 1
     
     # Generate manifest
@@ -40,7 +48,7 @@ def cmd_scan(args):
             equal_weights=not args.no_equal_weights
         )
     except Exception as e:
-        print(f"Error scanning folder: {e}")
+        print_error(f"Error scanning folder: {e}")
         return 1
     
     # Determine output path for manifest
@@ -54,13 +62,12 @@ def cmd_scan(args):
     try:
         manifest.save(manifest_path)
         
-        print("\n" + "=" * 60)
-        print("Manifest generated successfully!")
-        print(f"Review and edit: {manifest_path}")
-        print("Then run: python run.py merge --manifest", manifest_path)
+        console.print()
+        print_info(f"Review and edit: [bold]{manifest_path}[/bold]")
+        print_info(f"Then run: [bold cyan]python run.py merge --manifest {manifest_path}[/bold cyan]")
         
     except Exception as e:
-        print(f"Error saving manifest: {e}")
+        print_error(f"Error saving manifest: {e}")
         return 1
     
     return 0
@@ -75,14 +82,17 @@ def cmd_merge(args):
     manifest_path = Path(args.manifest)
     
     if not manifest_path.exists():
-        print(f"Error: Manifest file not found: {manifest_path}")
+        print_error(f"Manifest file not found: {manifest_path}")
         return 1
+    
+    # Print header
+    print_header("🎨 Model Merger v0.1.0 🎨")
     
     # Load manifest
     try:
         manifest = manifest_module.MergeManifest.load(manifest_path)
     except Exception as e:
-        print(f"Error loading manifest: {e}")
+        print_error(f"Error loading manifest: {e}")
         return 1
     
     # Apply CLI overrides
@@ -91,29 +101,28 @@ def cmd_merge(args):
     if args.device:
         manifest.device = args.device
     
+    # Display manifest summary
+    print_manifest_summary(manifest)
+    
     # Validate manifest
-    print("Validating manifest...")
+    console.print("\n[cyan]Validating manifest...[/cyan]")
     issues = manifest_module.validate_manifest(manifest)
     if issues:
-        print("\nManifest validation issues:")
-        for issue in issues:
-            print(f"  - {issue}")
+        print_validation_issues(issues)
         
         # Check if any are errors (not warnings)
         errors = [i for i in issues if not i.startswith("Warning:")]
         if errors:
-            print("\nCannot proceed with errors. Please fix the manifest.")
+            print_error("Cannot proceed with errors. Please fix the manifest.")
             return 1
         else:
             # Just warnings, ask to continue
             response = input("\nContinue anyway? [y/N]: ")
             if response.lower() != 'y':
-                print("Aborted.")
+                console.print("[yellow]Aborted.[/yellow]")
                 return 1
-    
-    print("\n" + "=" * 60)
-    print("Starting merge process...")
-    print("=" * 60)
+    else:
+        print_success("Manifest validation passed!")
     
     # Step 1: Merge models
     try:
@@ -123,7 +132,7 @@ def cmd_merge(args):
             validate_compatibility=True
         )
     except Exception as e:
-        print(f"\nError during merge: {e}")
+        print_error(f"Error during merge: {e}")
         return 1
     
     # Step 2: Bake VAE if specified
@@ -136,7 +145,7 @@ def cmd_merge(args):
                 device=manifest.device
             )
         except Exception as e:
-            print(f"\nError baking VAE: {e}")
+            print_error(f"Error baking VAE: {e}")
             return 1
     
     # Step 3: Handle precision conversion
@@ -144,10 +153,10 @@ def cmd_merge(args):
     if manifest.output_precision == 'match':
         # Use first model's precision
         target_precision = manifest.models[0].precision_detected or 'fp32'
-        print(f"\nMatching first model's precision: {target_precision}")
+        console.print(f"\n[cyan]Matching first model's precision: {target_precision}[/cyan]")
     else:
         target_precision = manifest.output_precision
-        print(f"\nConverting to specified precision: {target_precision}")
+        console.print(f"\n[cyan]Converting to specified precision: {target_precision}[/cyan]")
     
     # Convert if needed
     try:
@@ -156,7 +165,7 @@ def cmd_merge(args):
             target_precision=target_precision
         )
     except Exception as e:
-        print(f"\nError converting precision: {e}")
+        print_error(f"Error converting precision: {e}")
         return 1
     
     # Step 4: Prune if requested
@@ -164,7 +173,7 @@ def cmd_merge(args):
         try:
             merged_dict = merger_module.prune_model(merged_dict)
         except Exception as e:
-            print(f"\nError pruning model: {e}")
+            print_error(f"Error pruning model: {e}")
             return 1
     
     # Step 5: Save the result
@@ -184,16 +193,14 @@ def cmd_merge(args):
             metadata=metadata
         )
         
-        print("\n" + "=" * 60)
-        print("🎉 MERGE COMPLETE! 🎉")
-        print("=" * 60)
-        print(f"Your merged model is ready at: {output_path}")
-        print(f"Output SHA-256: {output_hash}")
-        print("\n💡 Tip: Save this hash! You can use it to verify file integrity")
-        print("   or look up the model on CivitAI/HuggingFace later.")
+        # Get file size
+        size_mb = output_path.stat().st_size / (1024 * 1024)
+        
+        # Print beautiful completion message
+        print_completion(str(output_path), size_mb, output_hash)
         
     except Exception as e:
-        print(f"\nError saving model: {e}")
+        print_error(f"Error saving model: {e}")
         return 1
     
     return 0

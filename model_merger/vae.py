@@ -8,10 +8,10 @@ merging is complete, as the final step before saving.
 import torch
 from pathlib import Path
 from typing import Dict
-from tqdm import tqdm
 
 from . import config
 from .loader import load_vae
+from .console import console, create_progress, print_section, print_success
 
 
 def bake_vae(
@@ -50,35 +50,38 @@ def bake_vae(
         The model_state_dict is modified in-place for memory efficiency,
         but we also return it to allow method chaining.
     """
-    print(f"\nBaking VAE from: {vae_path.name}")
-    print("=" * 60)
+    print_section(f"Baking VAE: {vae_path.name}")
     
     # Load the VAE
     vae_state_dict, vae_metadata = load_vae(vae_path, device=device)
     
-    print(f"VAE loaded with {len(vae_state_dict)} tensors")
+    console.print(f"  [dim]VAE loaded with {len(vae_state_dict)} tensors[/dim]")
     
     # Inject VAE tensors into model
     replaced_count = 0
     added_count = 0
     
-    for vae_key, vae_tensor in tqdm(vae_state_dict.items(), desc="Baking VAE"):
-        # Add the first_stage_model prefix
-        model_key = config.VAE_KEY_PREFIX + vae_key
-        
-        if model_key in model_state_dict:
-            # Replace existing VAE tensor
-            model_state_dict[model_key] = vae_tensor
-            replaced_count += 1
-        else:
-            # Add new VAE tensor (in case merged model was missing some)
-            model_state_dict[model_key] = vae_tensor
-            added_count += 1
+    with create_progress() as progress:
+        task = progress.add_task("Baking VAE", total=len(vae_state_dict))
+        for vae_key, vae_tensor in vae_state_dict.items():
+            # Add the first_stage_model prefix
+            model_key = config.VAE_KEY_PREFIX + vae_key
+            
+            if model_key in model_state_dict:
+                # Replace existing VAE tensor
+                model_state_dict[model_key] = vae_tensor
+                replaced_count += 1
+            else:
+                # Add new VAE tensor (in case merged model was missing some)
+                model_state_dict[model_key] = vae_tensor
+                added_count += 1
+            
+            progress.advance(task)
     
-    print(f"✓ VAE baked successfully!")
-    print(f"  Replaced {replaced_count} tensors")
+    print_success("VAE baked successfully!")
+    console.print(f"  [dim]Replaced {replaced_count} tensors[/dim]")
     if added_count > 0:
-        print(f"  Added {added_count} new tensors")
+        console.print(f"  [dim]Added {added_count} new tensors[/dim]")
     
     # Free VAE memory
     del vae_state_dict

@@ -8,11 +8,11 @@ pattern to avoid loading all models into memory at once.
 import torch
 from pathlib import Path
 from typing import Dict, List, Optional
-from tqdm import tqdm
 
 from . import config
 from .loader import load_model, validate_models_compatible
 from .manifest import ModelEntry
+from .console import console, create_progress, print_step, print_success, print_section
 
 
 def merge_models(
@@ -53,17 +53,16 @@ def merge_models(
         raise ValueError("No models provided for merging")
     
     if len(model_entries) == 1:
-        print("Warning: Only one model provided, returning it unmodified")
+        console.print("[yellow]Warning:[/yellow] Only one model provided, returning it unmodified")
         state_dict, _ = load_model(Path(model_entries[0].path), device=device)
         return state_dict
     
-    print(f"\nMerging {len(model_entries)} models...")
-    print("=" * 60)
+    print_section(f"Merging {len(model_entries)} Models")
     
     # Load first model - this becomes our accumulator
     first_entry = model_entries[0]
-    print(f"\n[1/{len(model_entries)}] Loading base model: {Path(first_entry.path).name}")
-    print(f"  Weight: {first_entry.weight}")
+    print_step(1, len(model_entries), f"Loading base model: [bold]{Path(first_entry.path).name}[/bold]")
+    console.print(f"  [dim]Weight: {first_entry.weight}[/dim]")
     
     accumulator, first_metadata = load_model(
         Path(first_entry.path),
@@ -72,12 +71,15 @@ def merge_models(
     )
     
     # Multiply first model by its weight
-    print(f"  Applying weight {first_entry.weight}...")
-    for key in tqdm(accumulator.keys(), desc="  Weighting base model"):
-        if config.should_skip_merge_key(key):
-            continue
-        if 'weight' in key or 'bias' in key:
-            accumulator[key] = accumulator[key].to(torch.float32) * first_entry.weight
+    console.print(f"  [cyan]Applying weight {first_entry.weight}...[/cyan]")
+    with create_progress() as progress:
+        task = progress.add_task("Weighting base model", total=len(accumulator))
+        for key in accumulator.keys():
+            if config.should_skip_merge_key(key):
+                continue
+            if 'weight' in key or 'bias' in key:
+                accumulator[key] = accumulator[key].to(torch.float32) * first_entry.weight
+            progress.advance(task)
     
     # Store reference model for compatibility checking
     reference_dict = {k: v for k, v in accumulator.items()}
@@ -85,8 +87,8 @@ def merge_models(
     # Process remaining models
     for idx, entry in enumerate(model_entries[1:], start=2):
         model_path = Path(entry.path)
-        print(f"\n[{idx}/{len(model_entries)}] Loading: {model_path.name}")
-        print(f"  Weight: {entry.weight}")
+        print_step(idx, len(model_entries), f"Loading: [bold]{model_path.name}[/bold]")
+        console.print(f"  [dim]Weight: {entry.weight}[/dim]")
         
         # Load model
         current_model, current_metadata = load_model(
@@ -107,29 +109,35 @@ def merge_models(
                 raise ValueError(f"Models are incompatible: {error_msg}")
         
         # Accumulate this model
-        print(f"  Merging with weight {entry.weight}...")
+        console.print(f"  [cyan]Merging with weight {entry.weight}...[/cyan]")
         merged_keys = 0
         skipped_keys = 0
         
-        for key in tqdm(current_model.keys(), desc="  Accumulating"):
-            if config.should_skip_merge_key(key):
-                skipped_keys += 1
-                continue
-            
-            # Only merge keys that exist in both models
-            if key not in accumulator:
-                skipped_keys += 1
-                continue
-            
-            if 'weight' in key or 'bias' in key:
-                # Add weighted tensor to accumulator
-                accumulator[key] = (
-                    accumulator[key] + 
-                    current_model[key].to(torch.float32) * entry.weight
-                )
-                merged_keys += 1
+        with create_progress() as progress:
+            task = progress.add_task("Accumulating", total=len(current_model))
+            for key in current_model.keys():
+                if config.should_skip_merge_key(key):
+                    skipped_keys += 1
+                    progress.advance(task)
+                    continue
+                
+                # Only merge keys that exist in both models
+                if key not in accumulator:
+                    skipped_keys += 1
+                    progress.advance(task)
+                    continue
+                
+                if 'weight' in key or 'bias' in key:
+                    # Add weighted tensor to accumulator
+                    accumulator[key] = (
+                        accumulator[key] + 
+                        current_model[key].to(torch.float32) * entry.weight
+                    )
+                    merged_keys += 1
+                
+                progress.advance(task)
         
-        print(f"  Merged {merged_keys} tensors, skipped {skipped_keys}")
+        console.print(f"  [dim]Merged {merged_keys} tensors, skipped {skipped_keys}[/dim]")
         
         # Free memory
         del current_model
@@ -138,9 +146,8 @@ def merge_models(
     # Clean up reference dict
     del reference_dict
     
-    print("\n" + "=" * 60)
-    print(f"✓ Merge complete! Combined {len(model_entries)} models.")
-    print(f"  Total tensors in result: {len(accumulator)}")
+    print_success(f"Merge complete! Combined {len(model_entries)} models.")
+    console.print(f"  [dim]Total tensors in result: {len(accumulator)}[/dim]\n")
     
     return accumulator
 
@@ -173,16 +180,19 @@ def convert_precision(
     
     target_dtype = dtype_map[target_precision]
     
-    print(f"\nConverting model to {target_precision}...")
+    console.print(f"\n[cyan]Converting model to {target_precision}...[/cyan]")
     
     converted = {}
-    for key, tensor in tqdm(state_dict.items(), desc="Converting precision"):
-        # Only convert floating point tensors
-        if tensor.dtype in {torch.float32, torch.float16, torch.bfloat16, torch.float64}:
-            converted[key] = tensor.to(target_dtype)
-        else:
-            # Keep integer tensors, etc. as-is
-            converted[key] = tensor
+    with create_progress() as progress:
+        task = progress.add_task("Converting precision", total=len(state_dict))
+        for key, tensor in state_dict.items():
+            # Only convert floating point tensors
+            if tensor.dtype in {torch.float32, torch.float16, torch.bfloat16, torch.float64}:
+                converted[key] = tensor.to(target_dtype)
+            else:
+                # Keep integer tensors, etc. as-is
+                converted[key] = tensor
+            progress.advance(task)
     
     return converted
 
@@ -207,16 +217,19 @@ def prune_model(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     Returns:
         Pruned state dict with only essential keys
     """
-    print("\nPruning unnecessary keys...")
+    console.print("\n[cyan]Pruning unnecessary keys...[/cyan]")
     
     original_count = len(state_dict)
     pruned = {}
     
-    for key, tensor in tqdm(state_dict.items(), desc="Pruning"):
-        if not config.should_prune_key(key):
-            pruned[key] = tensor
+    with create_progress() as progress:
+        task = progress.add_task("Pruning", total=len(state_dict))
+        for key, tensor in state_dict.items():
+            if not config.should_prune_key(key):
+                pruned[key] = tensor
+            progress.advance(task)
     
     removed_count = original_count - len(pruned)
-    print(f"  Removed {removed_count} keys, kept {len(pruned)} keys")
+    console.print(f"  [dim]Removed {removed_count} keys, kept {len(pruned)} keys[/dim]")
     
     return pruned
