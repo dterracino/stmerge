@@ -52,7 +52,7 @@ def save_model(
     output_path: Path,
     overwrite: bool = False,
     metadata: Optional[Dict[str, str]] = None
-) -> None:
+) -> str:
     """
     Save a model to a safetensors file.
     
@@ -68,6 +68,9 @@ def save_model(
         output_path: Where to save the file
         overwrite: If False, error if file exists
         metadata: Optional metadata to embed in the file
+        
+    Returns:
+        SHA-256 hash of the saved file (for verification/tracking)
         
     Raises:
         FileExistsError: If file exists and overwrite=False

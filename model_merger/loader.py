@@ -8,7 +8,7 @@ and computing SHA-256 hashes for verification/lookup.
 import hashlib
 import torch
 from pathlib import Path
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, Any
 from safetensors.torch import load_file
 from tqdm import tqdm
 
@@ -74,7 +74,7 @@ def load_model(
     filepath: Path,
     device: str = 'cpu',
     compute_hash: bool = False
-) -> Tuple[Dict[str, torch.Tensor], Dict[str, any]]:
+) -> Tuple[Dict[str, torch.Tensor], Dict[str, Any]]:
     """
     Load a model from a safetensors file.
     
@@ -127,7 +127,7 @@ def load_vae(
     filepath: Path,
     device: str = 'cpu',
     compute_hash: bool = False
-) -> Tuple[Dict[str, torch.Tensor], Dict[str, any]]:
+) -> Tuple[Dict[str, torch.Tensor], Dict[str, Any]]:
     """
     Load a VAE from a safetensors file.
     
