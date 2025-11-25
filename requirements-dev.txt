@@ -1,0 +1,9 @@
+# Development dependencies for model_merger
+# Install with: pip install -r requirements-dev.txt
+
+# Include production dependencies
+-r requirements.txt
+
+# Code coverage for unittest
+coverage>=7.3.0
+
