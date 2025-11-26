@@ -215,15 +215,9 @@ def prune_model(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     """
     Remove unnecessary keys from the model.
     
-    This strips out training artifacts, optimizer states, EMA weights,
-    and other cruft that bloats the file without affecting generation.
-    
-    We keep only:
-    - model.diffusion_model.* (the actual SD model)
-    - first_stage_model.* (the VAE)
-    - cond_stage_model.* / conditioner.* (text encoders)
-    
-    Everything else gets the axe! This can save hundreds of MB.
+    Uses smart pruning that adapts to the file format:
+    - Full SD checkpoints: Aggressive pruning (keep only model weights)
+    - Standalone files: Conservative pruning (remove only training artifacts)
     
     Args:
         state_dict: Model state dictionary
@@ -231,19 +225,16 @@ def prune_model(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     Returns:
         Pruned state dict with only essential keys
     """
+    from . import pruner as pruner_module
+    
     console.print("\n[cyan]Pruning unnecessary keys...[/cyan]")
     
     original_count = len(state_dict)
-    pruned = {}
     
-    with create_progress() as progress:
-        task = progress.add_task("Pruning", total=len(state_dict))
-        for key, tensor in state_dict.items():
-            if not config.should_prune_key(key):
-                pruned[key] = tensor
-            progress.advance(task)
+    # Use pruner module for smart format-aware pruning
+    pruned, removed_count, format_type = pruner_module.prune_state_dict(state_dict)
     
-    removed_count = original_count - len(pruned)
+    console.print(f"  [dim]Detected format: {pruner_module.get_format_description(format_type)}[/dim]")
     console.print(f"  [dim]Removed {removed_count} keys, kept {len(pruned)} keys[/dim]")
     
     return pruned

@@ -6,6 +6,8 @@ This package provides utilities for:
 - Merging multiple models with configurable weights
 - Baking VAEs into merged models
 - Converting legacy checkpoint formats to safetensors (with advanced safety features!)
+- Smart pruning that adapts to file format (SD models, VAEs, LoRAs, embeddings)
+- Verifying converted models match originals (deep tensor comparison)
 - Saving results in safetensors format
 
 Main workflow:
@@ -17,11 +19,13 @@ Main workflow:
 Or for conversion:
     1. Convert old .ckpt file → safetensors
     2. Automatic DataParallel prefix removal
-    3. Shared tensor detection & cloning
-    4. Verification of output quality
+    3. Smart format detection and pruning
+    4. Shared tensor detection & cloning
+    5. Verification of output quality
+    6. (Optional) Deep verify original vs converted
 """
 
-__version__ = '0.3.0'
+__version__ = '0.5.0'
 
 # Expose main classes and functions at package level
 from .config import (
@@ -68,6 +72,20 @@ from .converter import (
     extract_state_dict,
 )
 
+from .verifier import (
+    verify_conversion,
+    compare_key_sets,
+    compare_tensors,
+)
+
+from .pruner import (
+    detect_format,
+    should_prune_key,
+    prune_state_dict,
+    should_skip_pruning,
+    get_format_description,
+)
+
 __all__ = [
     # Config
     'detect_architecture_from_filename',
@@ -105,4 +123,16 @@ __all__ = [
     'convert_to_safetensors',
     'load_checkpoint',
     'extract_state_dict',
+    
+    # Verifier
+    'verify_conversion',
+    'compare_key_sets',
+    'compare_tensors',
+    
+    # Pruner
+    'detect_format',
+    'should_prune_key',
+    'prune_state_dict',
+    'should_skip_pruning',
+    'get_format_description',
 ]

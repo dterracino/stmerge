@@ -17,6 +17,7 @@ from . import vae as vae_module
 from . import saver as saver_module
 from . import loader as loader_module
 from . import converter as converter_module
+from . import verifier as verifier_module
 from .__init__ import __version__
 from .console import (
     console, print_header, print_section, print_success, print_error, 
@@ -128,6 +129,45 @@ def cmd_convert(args) -> int:
         return 1
     
     return 0
+
+
+def cmd_verify(args) -> int:
+    """Handle the verify subcommand."""
+    original_path = Path(args.original)
+    converted_path = Path(args.converted)
+    
+    # Print header
+    print_header("🔍 Model Merger - Verify Mode 🔍")
+    
+    # Check files exist
+    if not original_path.exists():
+        print_error(f"Original file not found: {original_path}")
+        return 1
+    
+    if not converted_path.exists():
+        print_error(f"Converted file not found: {converted_path}")
+        return 1
+    
+    # Run verification
+    try:
+        passed = verifier_module.verify_conversion(
+            original_path=original_path,
+            converted_path=converted_path,
+            verbose=args.verbose
+        )
+        
+        if passed:
+            console.print()
+            print_success("Conversion verified successfully! Files are identical.")
+            return 0
+        else:
+            console.print()
+            print_error("Verification failed! Files do not match.")
+            return 1
+            
+    except Exception as e:
+        print_error(f"Verification error: {e}")
+        return 1
 
 
 def cmd_merge(args):
@@ -305,6 +345,9 @@ Examples:
   
   # Convert legacy checkpoint
   python run.py convert old_model.ckpt
+  
+  # Verify conversion quality
+  python run.py verify old_model.ckpt new_model.safetensors
         """
     )
     
@@ -415,6 +458,27 @@ Examples:
         help='Overwrite output file if it exists'
     )
     
+    # Verify subcommand
+    verify_parser = subparsers.add_parser(
+        'verify',
+        help='Verify that a converted model matches the original'
+    )
+    verify_parser.add_argument(
+        'original',
+        type=str,
+        help='Path to original model file (.ckpt/.pt/.pth/.bin)'
+    )
+    verify_parser.add_argument(
+        'converted',
+        type=str,
+        help='Path to converted safetensors file'
+    )
+    verify_parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Show detailed comparison for every tensor'
+    )
+    
     # Parse arguments
     args = parser.parse_args()
     
@@ -425,6 +489,8 @@ Examples:
         return cmd_merge(args)
     elif args.command == 'convert':
         return cmd_convert(args)
+    elif args.command == 'verify':
+        return cmd_verify(args)
     else:
         parser.print_help()
         return 1

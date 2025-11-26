@@ -101,6 +101,12 @@ def extract_state_dict(checkpoint: Dict[str, Any]) -> Dict[str, torch.Tensor]:
     Navigates different checkpoint structures to find the actual model weights.
     Removes training state, optimizer state, and other metadata.
     
+    Handles:
+    - Standard model checkpoints (state_dict, model, weights, model_state_dict keys)
+    - Textual inversion embeddings (string_to_param key)
+    - Bare state dicts (already just tensors)
+    - Single tensor files
+    
     Args:
         checkpoint: Loaded checkpoint dictionary
         
@@ -142,13 +148,48 @@ def extract_state_dict(checkpoint: Dict[str, Any]) -> Dict[str, torch.Tensor]:
             raise ValueError("'model' key doesn't contain a valid state dict!")
     
     else:
-        # Unknown format - try to be helpful
-        keys = list(checkpoint.keys())
-        raise ValueError(
-            f"Unknown checkpoint format!\n"
-            f"Top-level keys: {keys[:10]}\n"
-            f"Expected one of: bare state dict, 'state_dict' key, or 'model' key"
-        )
+        # Unknown format - try some heuristics
+        
+        # Check for textual inversion embedding format
+        # These have keys like: string_to_token, string_to_param, name, step, etc.
+        if 'string_to_param' in checkpoint:
+            console.print("[dim]  Format: Textual Inversion Embedding[/dim]")
+            # The actual embedding tensor is in string_to_param
+            # It's a dict mapping token strings to parameter tensors
+            return checkpoint['string_to_param']
+        
+        # Check for other known patterns
+        if 'weights' in checkpoint:
+            console.print("[dim]  Format: Has 'weights' key[/dim]")
+            return checkpoint['weights']
+        
+        if 'model_state_dict' in checkpoint:
+            console.print("[dim]  Format: Has 'model_state_dict' key[/dim]")
+            return checkpoint['model_state_dict']
+        
+        # Last resort: treat the whole thing as a state dict
+        # This works for some exotic checkpoint formats where the tensors
+        # are at the top level mixed with metadata
+        console.print("[dim]  Format: Unknown, treating as bare state dict[/dim]")
+        console.print("[dim]  (This might include non-tensor metadata)[/dim]")
+        
+        # Filter to only keep tensors
+        filtered = {}
+        for key, value in checkpoint.items():
+            if isinstance(value, torch.Tensor):
+                filtered[key] = value
+        
+        if not filtered:
+            # No tensors found at all!
+            keys = list(checkpoint.keys())
+            raise ValueError(
+                f"Cannot find tensors in checkpoint!\n"
+                f"Top-level keys: {keys[:10]}\n"
+                f"Expected one of: 'state_dict', 'model', 'weights', 'string_to_param', or bare tensors"
+            )
+        
+        console.print(f"  [dim]Extracted {len(filtered)} tensors from checkpoint[/dim]")
+        return filtered
 
 
 def load_checkpoint(
@@ -197,17 +238,38 @@ def load_checkpoint(
         )
         
     except Exception as e:
-        # If safe loading fails, we refuse to proceed
-        raise RuntimeError(
-            f"Cannot load {filepath.name} safely!\n\n"
-            f"This file either:\n"
-            f"  • Contains executable code (DANGEROUS!)\n"
-            f"  • Uses an incompatible pickle format\n"
-            f"  • Is corrupted\n\n"
-            f"Error: {e}\n\n"
-            f"For your safety, this tool will NOT attempt unsafe loading.\n"
-            f"Only convert files from trusted sources!"
+        # If safe loading fails, provide helpful error with PyTorch's context
+        from rich.panel import Panel
+        
+        # Format the PyTorch error nicely
+        pytorch_error = str(e)
+        error_panel = Panel(
+            f"[yellow]{pytorch_error}[/yellow]",
+            title="[red]PyTorch Loading Error Details[/red]",
+            border_style="red",
+            padding=(1, 2)
         )
+        
+        console.print()
+        print_error(f"Cannot load {filepath.name} safely!")
+        console.print("\n[yellow]This file cannot be loaded with safety checks enabled.[/yellow]")
+        console.print("Possible reasons:")
+        console.print("  [dim]• Contains custom Python classes or code[/dim]")
+        console.print("  [dim]• Uses an incompatible/old pickle format[/dim]")
+        console.print("  [dim]• File corruption[/dim]")
+        
+        console.print()
+        console.print(error_panel)
+        
+        console.print()
+        console.print("[bold cyan]If you created this file yourself:[/bold cyan]")
+        console.print("  See the [bold]Troubleshooting[/bold] section in README.md for manual")
+        console.print("  conversion instructions (search for 'Safe loading failed')")
+        console.print()
+        console.print("[bold red]⚠ For your safety, this tool will NOT attempt unsafe loading.[/bold red]")
+        
+        # Raise a simple exception (details already printed above)
+        raise RuntimeError(f"Safe loading failed for {filepath.name}")
     
     # Extract the actual state dict
     try:
@@ -307,21 +369,27 @@ def convert_to_safetensors(
             if hasattr(state_dict[key], 'shape'):
                 console.print(f"    [dim]{key}: {state_dict[key].shape}[/dim]")
     
-    # Optionally prune unnecessary keys
+    # Optionally prune unnecessary keys using smart pruner
     if prune:
-        console.print("\n[cyan]Pruning unnecessary keys...[/cyan]")
-        original_count = len(state_dict)
+        from . import pruner as pruner_module
         
-        # Use the same pruning logic as merging
-        pruned = {}
-        for key, tensor in state_dict.items():
-            if not config.should_prune_key(key):
-                pruned[key] = tensor
+        # Detect format and decide pruning strategy
+        format_type = pruner_module.detect_format(state_dict)
+        format_desc = pruner_module.get_format_description(format_type)
         
-        removed_count = original_count - len(pruned)
-        console.print(f"  [dim]Removed {removed_count} keys, kept {len(pruned)} keys[/dim]")
-        
-        state_dict = pruned
+        if pruner_module.should_skip_pruning(format_type):
+            console.print(f"\n[yellow]⚠ Detected {format_desc} (non-prunable format)[/yellow]")
+            console.print("  [dim]Skipping pruning - file contains only essential data[/dim]")
+        else:
+            console.print(f"\n[cyan]Pruning unnecessary keys...[/cyan]")
+            console.print(f"  [dim]Detected format: {format_desc}[/dim]")
+            original_count = len(state_dict)
+            
+            state_dict, removed_count, _ = pruner_module.prune_state_dict(state_dict, format_type)
+            
+            console.print(f"  [dim]Removed {removed_count} keys, kept {len(state_dict)} keys[/dim]")
+    else:
+        console.print("\n[dim]Pruning disabled (--no-prune flag used)[/dim]")
     
     # Prepare tensors (contiguous + clone)
     # This is handled by save_model, but we import it for the numpy fallback

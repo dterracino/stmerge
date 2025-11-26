@@ -1,6 +1,6 @@
-# Model Merger v0.3.0
+# Model Merger v0.5.0
 
-A clean, simple tool for merging multiple Stable Diffusion models with optional VAE baking, plus robust conversion of legacy checkpoint formats with advanced safety features.
+A clean, simple tool for merging multiple Stable Diffusion models with optional VAE baking, plus robust conversion of legacy checkpoint formats with advanced safety features, smart format detection, and deep verification.
 
 ## Features
 
@@ -11,6 +11,12 @@ A clean, simple tool for merging multiple Stable Diffusion models with optional 
   - 🧹 **DataParallel prefix removal** - Auto-removes `module.` prefixes from multi-GPU trained models
   - 🔗 **Shared tensor handling** - Detects and fixes memory-sharing issues
   - ✅ **Output verification** - Validates converted files for quality
+  - 🧠 **Smart format detection** - Auto-detects SD models, VAEs, LoRAs, and embeddings
+  - 🎯 **Adaptive pruning** - Different strategies for different file types
+- 🔍 **Deep verification** - Compare original vs converted models tensor-by-tensor
+  - Checks key sets match
+  - Validates tensor shapes
+  - Compares numerical values with floating-point tolerance
 - 📝 **Manifest workflow** - Scan → Review → Merge with JSON configs
 - 🔒 **Security first** - Safe loading of legacy formats (no code execution!)
 - 🧹 **Auto-pruning** - Strips training artifacts to keep files lean
@@ -57,6 +63,30 @@ python run.py convert model.pt --output new_name.safetensors --no-prune --overwr
 - ✅ **Speed** - Safetensors loads 10x faster than pickles
 - ✅ **Reliability** - Can't get corrupted as easily
 - ✅ **Compatibility** - Works everywhere (ComfyUI, A1111, merging tools)
+
+### Verifying Conversions (New in v0.4!)
+
+Want to be 100% sure your conversion is perfect? Deep verify compares the original and converted files tensor-by-tensor:
+
+```bash
+# Convert a model
+python run.py convert old_model.ckpt
+
+# Verify it matches the original perfectly
+python run.py verify old_model.ckpt old_model.safetensors
+
+# Use --verbose to see every tensor comparison
+python run.py verify original.pt converted.safetensors --verbose
+```
+
+**What the verifier checks:**
+
+- ✅ **Key sets match** - All tensor names are present in both files
+- ✅ **Shapes match** - Every tensor has the same dimensions
+- ✅ **Values match** - Numerical values are identical (within floating-point tolerance)
+- ✅ **Module prefix handling** - Correctly handles `module.` prefix removal
+
+The verifier uses `torch.allclose()` with tolerances (rtol=1e-5, atol=1e-8) to account for normal floating-point precision differences. This is the same standard used in PyTorch's own testing!
 
 ### The Simple Merge Flow
 
@@ -308,6 +338,8 @@ model_merger/
 ├── vae.py            # VAE baking
 ├── saver.py          # Save merged models
 ├── converter.py      # Convert legacy formats to safetensors
+├── verifier.py       # Deep verification of conversions
+├── pruner.py         # Smart format detection and pruning
 ├── console.py        # Rich UI formatting and progress bars
 └── cli.py            # Command-line interface
 
@@ -317,6 +349,20 @@ run.py                # Entry point
 Each module has a single, clear responsibility. Easy to test, easy to extend!
 
 ## Roadmap
+
+**v0.5.0 - ✅ Complete!**
+
+- [x] Smart format detection (SD models, VAEs, LoRAs, embeddings)
+- [x] Adaptive pruning strategies per format type
+- [x] Dedicated pruner module for clean separation of concerns
+- [x] Automatic detection and handling of standalone files
+
+**v0.4.0 - ✅ Complete!**
+
+- [x] Deep verification system (compare original vs converted)
+- [x] Tensor-by-tensor comparison with floating-point tolerance
+- [x] Key set validation
+- [x] Module prefix handling in verification
 
 **v0.3.0 - ✅ Complete!**
 
@@ -334,7 +380,7 @@ Each module has a single, clear responsibility. Easy to test, easy to extend!
 - [x] CLI override persistence to manifest
 - [x] Skip-errors mode for scanning
 
-**Future ideas (v0.4.0+):**
+**Future ideas (v0.6.0+):**
 
 - [ ] Batch conversion (convert entire folders at once)
 - [ ] Block-weighted merging (different weights per layer)
@@ -364,6 +410,71 @@ Each module has a single, clear responsibility. Easy to test, easy to extend!
 ### "Output file exists"
 
 - Use `--overwrite` flag or change output filename in manifest
+
+### "Safe loading failed" / "Cannot load [file] safely"
+
+This happens when a checkpoint file contains custom Python code or uses old pickle formats that our safety checks (`weights_only=True`) reject. This is INTENTIONAL - the file could contain malicious code!
+
+**If you created this file yourself** and know it's safe, you can convert it manually:
+
+```python
+#!/usr/bin/env python3
+"""
+Manual unsafe checkpoint converter - USE AT YOUR OWN RISK!
+Only use this for files YOU created or completely trust.
+"""
+import torch
+from safetensors.torch import save_file
+from pathlib import Path
+
+# Your checkpoint file
+input_file = Path("my_checkpoint.ckpt")
+output_file = input_file.with_suffix(".safetensors")
+
+print(f"⚠️  WARNING: Loading {input_file} WITHOUT safety checks!")
+print("This file could contain malicious code. Proceed? [y/N]: ", end="")
+if input().lower() != 'y':
+    print("Cancelled.")
+    exit()
+
+# Load checkpoint (UNSAFE - can execute code!)
+checkpoint = torch.load(input_file, map_location='cpu', weights_only=False)
+
+# Extract state dict from various formats
+if isinstance(checkpoint, dict):
+    if 'state_dict' in checkpoint:
+        state_dict = checkpoint['state_dict']
+    elif 'model' in checkpoint:
+        state_dict = checkpoint['model']
+    elif 'string_to_param' in checkpoint:  # Textual inversion
+        state_dict = checkpoint['string_to_param']
+    else:
+        state_dict = checkpoint  # Assume it's already a state dict
+else:
+    state_dict = {input_file.stem: checkpoint}  # Single tensor
+
+# Remove 'module.' prefixes if present
+cleaned = {}
+for key, value in state_dict.items():
+    if key.startswith('module.'):
+        cleaned[key[7:]] = value
+    else:
+        cleaned[key] = value
+
+# Make tensors contiguous and independent
+for key in cleaned:
+    if isinstance(cleaned[key], torch.Tensor):
+        cleaned[key] = cleaned[key].contiguous().clone()
+
+# Save as safetensors
+print(f"Saving to {output_file}...")
+save_file(cleaned, str(output_file))
+print(f"✓ Converted! Size: {output_file.stat().st_size / 1024 / 1024:.2f} MB")
+```
+
+Save this script, modify the `input_file` path, and run it. The interactive prompt forces you to acknowledge the risk.
+
+**Never use this script on files from untrusted sources!** Malicious pickle files can delete your data, steal credentials, or install malware.
 
 ## Contributing
 
