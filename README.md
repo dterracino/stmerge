@@ -1,13 +1,16 @@
-# Model Merger v0.2.0
+# Model Merger v0.3.0
 
-A clean, simple tool for merging multiple Stable Diffusion models with optional VAE baking, plus safe conversion of legacy checkpoint formats.
+A clean, simple tool for merging multiple Stable Diffusion models with optional VAE baking, plus robust conversion of legacy checkpoint formats with advanced safety features.
 
 ## Features
 
 - ✨ **Multi-model merging** - Combine 2+ models with configurable weights
 - 🎯 **Accumulator pattern** - Memory-efficient streaming (only 2 models in RAM at once)
 - 🎨 **VAE baking** - Inject custom VAEs into merged models
-- 🔄 **Format converter** - Safely convert .ckpt/.pt/.pth/.bin to safetensors
+- 🔄 **Robust format converter** - Safely convert .ckpt/.pt/.pth/.bin to safetensors
+  - 🧹 **DataParallel prefix removal** - Auto-removes `module.` prefixes from multi-GPU trained models
+  - 🔗 **Shared tensor handling** - Detects and fixes memory-sharing issues
+  - ✅ **Output verification** - Validates converted files for quality
 - 📝 **Manifest workflow** - Scan → Review → Merge with JSON configs
 - 🔒 **Security first** - Safe loading of legacy formats (no code execution!)
 - 🧹 **Auto-pruning** - Strips training artifacts to keep files lean
@@ -32,9 +35,9 @@ pip install -r requirements.txt
 
 ## Quick Start
 
-### Converting Legacy Models (New in v0.2!)
+### Converting Legacy Models (Enhanced in v0.3!)
 
-Got old `.ckpt` or `.pt` files? Convert them safely to safetensors:
+Got old `.ckpt` or `.pt` files? Convert them safely to safetensors with advanced robustness features:
 
 ```bash
 # Basic conversion (auto-prunes, creates model.safetensors)
@@ -44,12 +47,16 @@ python run.py convert old_model.ckpt
 python run.py convert model.pt --output new_name.safetensors --no-prune --overwrite
 ```
 
-**Why convert?**
+**What makes v0.3.0's converter special:**
 
-- ✅ Security - Pickle files can contain malicious code
-- ✅ Speed - Safetensors loads 10x faster
-- ✅ Reliability - Can't get corrupted as easily
-- ✅ Compatibility - Works everywhere (ComfyUI, A1111, merging tools)
+- ✅ **DataParallel Support** - Automatically removes `module.` prefixes from multi-GPU trained models
+- ✅ **Shared Tensor Detection** - Clones tensors to prevent memory-sharing errors
+- ✅ **Output Verification** - Validates the converted file for quality
+- ✅ **Numpy Fallback** - If standard save fails, uses numpy roundtrip as fallback
+- ✅ **Security** - Pickle files can contain malicious code, we only use safe loading
+- ✅ **Speed** - Safetensors loads 10x faster than pickles
+- ✅ **Reliability** - Can't get corrupted as easily
+- ✅ **Compatibility** - Works everywhere (ComfyUI, A1111, merging tools)
 
 ### The Simple Merge Flow
 
@@ -311,6 +318,14 @@ Each module has a single, clear responsibility. Easy to test, easy to extend!
 
 ## Roadmap
 
+**v0.3.0 - ✅ Complete!**
+
+- [x] DataParallel `module.` prefix removal
+- [x] Shared tensor detection and cloning
+- [x] Output verification for converted files
+- [x] Numpy fallback for stubborn shared tensors
+- [x] Enhanced converter robustness
+
 **v0.2.0 - ✅ Complete!**
 
 - [x] Convert .ckpt/.pt files to safetensors
@@ -319,14 +334,14 @@ Each module has a single, clear responsibility. Easy to test, easy to extend!
 - [x] CLI override persistence to manifest
 - [x] Skip-errors mode for scanning
 
-**v0.3.0 - Future ideas:**
+**Future ideas (v0.4.0+):**
 
-- [ ] Validate model compatibility before loading (peek at metadata)
-- [ ] Extract VAE from merged model
-- [ ] Batch conversion (convert entire folders)
+- [ ] Batch conversion (convert entire folders at once)
 - [ ] Block-weighted merging (different weights per layer)
+- [ ] Extract VAE from merged model
 - [ ] Interactive TUI for editing manifests
 - [ ] API lookup for model hashes (CivitAI, HuggingFace)
+- [ ] Validate model compatibility before loading (peek at metadata)
 
 ## Troubleshooting
 

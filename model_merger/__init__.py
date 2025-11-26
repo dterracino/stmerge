@@ -5,7 +5,7 @@ This package provides utilities for:
 - Scanning folders of models and generating merge manifests
 - Merging multiple models with configurable weights
 - Baking VAEs into merged models
-- Converting legacy checkpoint formats to safetensors
+- Converting legacy checkpoint formats to safetensors (with advanced safety features!)
 - Saving results in safetensors format
 
 Main workflow:
@@ -16,10 +16,12 @@ Main workflow:
     
 Or for conversion:
     1. Convert old .ckpt file → safetensors
-    2. Now safe to use and merge!
+    2. Automatic DataParallel prefix removal
+    3. Shared tensor detection & cloning
+    4. Verification of output quality
 """
 
-__version__ = '0.2.0'
+__version__ = '0.3.0'
 
 # Expose main classes and functions at package level
 from .config import (

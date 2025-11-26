@@ -26,6 +26,39 @@ from .console import console, print_warning, print_error, print_success, print_i
 LEGACY_FORMATS = {'.ckpt', '.pt', '.pth', '.bin'}
 
 
+def remove_module_prefix(state_dict: Dict[str, torch.Tensor]) -> Tuple[Dict[str, torch.Tensor], int]:
+    """
+    Remove 'module.' prefixes from state dict keys.
+    
+    When models are trained with PyTorch's DataParallel (multi-GPU training),
+    it wraps the model and adds 'module.' prefixes to all keys. This makes
+    the checkpoint incompatible with single-GPU loading.
+    
+    Example:
+        'module.encoder.weight' -> 'encoder.weight'
+        'module.decoder.bias' -> 'decoder.bias'
+    
+    Args:
+        state_dict: State dictionary potentially with module prefixes
+        
+    Returns:
+        Tuple of (cleaned_state_dict, count_of_prefixes_removed)
+    """
+    cleaned = {}
+    prefix_count = 0
+    
+    for key, value in state_dict.items():
+        if key.startswith('module.'):
+            # Remove the 'module.' prefix (7 characters)
+            cleaned_key = key[7:]
+            cleaned[cleaned_key] = value
+            prefix_count += 1
+        else:
+            cleaned[key] = value
+    
+    return cleaned, prefix_count
+
+
 def detect_checkpoint_format(checkpoint: Dict[str, Any]) -> str:
     """
     Detect the format/structure of a loaded checkpoint.
@@ -216,9 +249,12 @@ def convert_to_safetensors(
     Main conversion function that orchestrates the entire process:
     1. Load checkpoint safely (weights_only mode)
     2. Extract state dict
-    3. Optionally prune unnecessary keys
-    4. Save as safetensors
-    5. Optionally compute output hash
+    3. Remove 'module.' prefixes (from DataParallel training)
+    4. Optionally prune unnecessary keys
+    5. Prepare tensors (contiguous + clone to break shared memory)
+    6. Save as safetensors
+    7. Verify output
+    8. Optionally compute output hash
     
     Args:
         input_path: Path to input checkpoint (.ckpt/.pt/.pth/.bin)
@@ -249,6 +285,28 @@ def convert_to_safetensors(
     # Load the checkpoint
     state_dict, metadata = load_checkpoint(input_path, device='cpu')
     
+    # Remove 'module.' prefixes from DataParallel models
+    console.print("\n[cyan]Cleaning state dict...[/cyan]")
+    state_dict, prefix_count = remove_module_prefix(state_dict)
+    if prefix_count > 0:
+        console.print(f"  [dim]Removed 'module.' prefix from {prefix_count} keys[/dim]")
+    else:
+        console.print(f"  [dim]No 'module.' prefixes found (good!)[/dim]")
+    
+    # Show info about the model
+    total_params = sum(p.numel() for p in state_dict.values() if hasattr(p, 'numel'))
+    console.print(f"\n[cyan]Model info:[/cyan]")
+    console.print(f"  [dim]State dict contains {len(state_dict)} keys[/dim]")
+    console.print(f"  [dim]Total parameters: {total_params:,}[/dim]")
+    
+    # Show sample keys
+    sample_keys = list(state_dict.keys())[:3]
+    if sample_keys:
+        console.print(f"  [dim]Sample keys:[/dim]")
+        for key in sample_keys:
+            if hasattr(state_dict[key], 'shape'):
+                console.print(f"    [dim]{key}: {state_dict[key].shape}[/dim]")
+    
     # Optionally prune unnecessary keys
     if prune:
         console.print("\n[cyan]Pruning unnecessary keys...[/cyan]")
@@ -265,6 +323,11 @@ def convert_to_safetensors(
         
         state_dict = pruned
     
+    # Prepare tensors (contiguous + clone)
+    # This is handled by save_model, but we import it for the numpy fallback
+    from .saver import prepare_tensors
+    state_dict = prepare_tensors(state_dict)
+    
     # Save as safetensors
     console.print(f"\n[cyan]Saving as safetensors:[/cyan] {output_path.name}")
     
@@ -275,16 +338,90 @@ def convert_to_safetensors(
         'pruned': 'true' if prune else 'false',
     }
     
-    # Save using our existing saver module (returns hash)
-    output_hash = save_model(
-        state_dict=state_dict,
-        output_path=output_path,
-        overwrite=overwrite,
-        metadata=save_metadata
-    )
+    # Try standard save
+    try:
+        # Use our existing saver module (which now has prepare_tensors built in)
+        from .saver import save_model
+        output_hash = save_model(
+            state_dict=state_dict,
+            output_path=output_path,
+            overwrite=overwrite,
+            metadata=save_metadata
+        )
+    except RuntimeError as e:
+        if "Some tensors share memory" in str(e):
+            # This shouldn't happen after prepare_tensors, but just in case...
+            console.print("[yellow]⚠ Shared tensor error detected! Trying numpy fallback...[/yellow]")
+            
+            # Force complete independence via numpy roundtrip
+            independent_state_dict = {}
+            for key, value in state_dict.items():
+                if isinstance(value, torch.Tensor):
+                    # Go through numpy to break ALL connections
+                    independent_state_dict[key] = torch.tensor(
+                        value.cpu().numpy(),
+                        dtype=value.dtype,
+                        device=value.device
+                    )
+                else:
+                    independent_state_dict[key] = value
+            
+            # Try saving again with independent tensors
+            output_hash = save_model(
+                state_dict=independent_state_dict,
+                output_path=output_path,
+                overwrite=overwrite,
+                metadata=save_metadata
+            )
+            console.print(f"  [green]✓ Saved using numpy fallback approach![/green]")
+        else:
+            raise
+    
+    # Verify the output file
+    console.print("\n[cyan]Verifying output...[/cyan]")
+    verify_conversion(output_path)
     
     # Aggressive cleanup
     del state_dict
     gc.collect()
     
     return output_hash
+
+
+def verify_conversion(output_path: Path) -> None:
+    """
+    Verify the converted safetensors file.
+    
+    Checks:
+    1. File exists and has reasonable size
+    2. Can be loaded back successfully
+    3. No remaining 'module.' prefixes (these cause loading issues)
+    
+    Args:
+        output_path: Path to the converted safetensors file
+    """
+    from safetensors.torch import load_file
+    
+    if not output_path.exists():
+        raise FileNotFoundError("Output file was not created!")
+    
+    # Check file size
+    file_size = output_path.stat().st_size
+    size_mb = file_size / (1024 * 1024)
+    console.print(f"  [dim]File size: {size_mb:.2f} MB[/dim]")
+    
+    # Try loading it back
+    try:
+        verify_data = load_file(str(output_path))
+        console.print(f"  [green]✓ File loads successfully ({len(verify_data)} keys)[/green]")
+        
+        # Check for remaining 'module.' prefixes
+        module_keys = [k for k in verify_data.keys() if k.startswith('module.')]
+        if module_keys:
+            print_warning(f"Found {len(module_keys)} keys with 'module.' prefix still present!")
+            print_warning("This may cause loading issues in some applications.")
+        else:
+            console.print(f"  [green]✓ No 'module.' prefixes found[/green]")
+            
+    except Exception as e:
+        print_error(f"Failed to verify output file: {e}")

@@ -15,39 +15,66 @@ from .loader import compute_file_hash
 from .console import console, create_progress, print_info
 
 
-def ensure_contiguous(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+def prepare_tensors(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     """
-    Ensure all tensors are contiguous in memory.
+    Prepare tensors for safetensors saving.
     
-    Safetensors requires tensors to be contiguous (stored in a single
-    block of memory without gaps). After all our merging operations,
-    some tensors might be non-contiguous, which would cause save_file()
-    to error out.
+    Safetensors requires:
+    1. Tensors must be contiguous in memory
+    2. Tensors must NOT share memory with each other
     
-    This is a quirk of how PyTorch handles tensor operations - sometimes
-    operations like transpose() or slice() create "views" that reference
-    the original tensor's memory in a non-contiguous way. Calling
-    .contiguous() forces PyTorch to make a new contiguous copy.
+    The shared memory issue occurs when multiple keys point to the same
+    underlying tensor data. Example:
+        tied_weights = torch.randn(256, 256)
+        state_dict = {
+            'encoder.weight': tied_weights,
+            'decoder.weight': tied_weights  # Same memory!
+        }
+    
+    This function:
+    1. Makes all tensors contiguous (safetensors requirement)
+    2. Clones all tensors to ensure independence (breaks memory sharing)
+    
+    The clone() operation creates new memory, so if tensors were sharing
+    before, they won't be after this. It's brute-force but foolproof!
     
     Args:
-        state_dict: Model state dictionary
+        state_dict: State dictionary with tensors
         
     Returns:
-        State dict with all tensors contiguous
+        Prepared state dictionary with contiguous, independent tensors
     """
-    console.print("\n[cyan]Ensuring tensors are contiguous...[/cyan]")
+    console.print("\n[cyan]Preparing tensors for safetensors...[/cyan]")
     
-    contiguous_dict = {}
+    prepared = {}
+    contiguous_count = 0
+    total_tensors = 0
+    
     with create_progress() as progress:
-        task = progress.add_task("Checking contiguity", total=len(state_dict))
-        for key, tensor in state_dict.items():
-            if not tensor.is_contiguous():
-                contiguous_dict[key] = tensor.contiguous()
+        task = progress.add_task("Preparing tensors", total=len(state_dict))
+        
+        for key, value in state_dict.items():
+            if isinstance(value, torch.Tensor):
+                total_tensors += 1
+                
+                # Step 1: Make contiguous if needed
+                if not value.is_contiguous():
+                    value = value.contiguous()
+                    contiguous_count += 1
+                
+                # Step 2: Clone to ensure independence
+                # This breaks any memory sharing between tensors
+                prepared[key] = value.clone()
             else:
-                contiguous_dict[key] = tensor
+                # Keep non-tensor values as-is
+                prepared[key] = value
+            
             progress.advance(task)
     
-    return contiguous_dict
+    console.print(f"  [dim]Made {contiguous_count} tensors contiguous[/dim]")
+    console.print(f"  [dim]Cloned {total_tensors} tensors to ensure independence[/dim]")
+    
+    return prepared
 
 
 def save_model(
@@ -93,8 +120,8 @@ def save_model(
     
     console.print(f"\n[cyan]Saving merged model to:[/cyan] {output_path}")
     
-    # Ensure tensors are contiguous (safetensors requirement)
-    state_dict = ensure_contiguous(state_dict)
+    # Prepare tensors (make contiguous + clone to break memory sharing)
+    state_dict = prepare_tensors(state_dict)
     
     # Prepare metadata
     # Safetensors metadata must be strings

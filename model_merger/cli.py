@@ -17,6 +17,7 @@ from . import vae as vae_module
 from . import saver as saver_module
 from . import loader as loader_module
 from . import converter as converter_module
+from .__init__ import __version__
 from .console import (
     console, print_header, print_section, print_success, print_error, 
     print_warning, print_info, print_manifest_summary, print_completion,
@@ -301,7 +302,17 @@ Examples:
   
   # Override settings from command line
   python run.py merge --manifest config.json --overwrite --device cuda
+  
+  # Convert legacy checkpoint
+  python run.py convert old_model.ckpt
         """
+    )
+    
+    # Add version argument
+    parser.add_argument(
+        '-v', '--version',
+        action='version',
+        version=f'Model Merger v{__version__}'
     )
     
     subparsers = parser.add_subparsers(dest='command', help='Command to execute')
