@@ -11,7 +11,7 @@ A clean, simple tool for merging multiple Stable Diffusion models with optional 
   - 🧹 **DataParallel prefix removal** - Auto-removes `module.` prefixes from multi-GPU trained models
   - 🔗 **Shared tensor handling** - Detects and fixes memory-sharing issues
   - ✅ **Output verification** - Validates converted files for quality
-  - 🧠 **Smart format detection** - Auto-detects SD models, VAEs, LoRAs, and embeddings
+  - 🧠 **Smart format detection** - Auto-detects SD models, VAEs, LoRAs, embeddings, and upscalers
   - 🎯 **Adaptive pruning** - Different strategies for different file types
 - 🔍 **Deep verification** - Compare original vs converted models tensor-by-tensor
   - Checks key sets match
@@ -41,7 +41,7 @@ pip install -r requirements.txt
 
 ## Quick Start
 
-### Converting Legacy Models (Enhanced in v0.3!)
+### Converting Legacy Models (Smart & Safe!)
 
 Got old `.ckpt` or `.pt` files? Convert them safely to safetensors with advanced robustness features:
 
@@ -53,8 +53,10 @@ python run.py convert old_model.ckpt
 python run.py convert model.pt --output new_name.safetensors --no-prune --overwrite
 ```
 
-**What makes v0.3.0's converter special:**
+**What makes our converter special:**
 
+- ✅ **Smart Format Detection** - Auto-detects SD models, VAEs, LoRAs, embeddings, and upscalers
+- ✅ **Adaptive Pruning** - Different strategies for different file types (v0.5.0!)
 - ✅ **DataParallel Support** - Automatically removes `module.` prefixes from multi-GPU trained models
 - ✅ **Shared Tensor Detection** - Clones tensors to prevent memory-sharing errors
 - ✅ **Output Verification** - Validates the converted file for quality
