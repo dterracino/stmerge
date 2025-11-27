@@ -130,6 +130,78 @@ class TestCmdConvert(unittest.TestCase):
         result = cli.cmd_convert(args)
         
         self.assertEqual(result, 1)
+    
+    @patch('model_merger.cli.print_header')
+    @patch('model_merger.cli.print_info')
+    @patch('model_merger.cli.print_completion')
+    @patch('model_merger.cli.converter_module.convert_to_safetensors')
+    def test_convert_success_returns_zero(
+        self, mock_convert, mock_completion, mock_info, mock_header
+    ):
+        """Test that successful conversion returns 0."""
+        # Create a dummy input file
+        input_file = self.temp_dir / "test_success.ckpt"
+        input_file.touch()
+        self.test_files.append(input_file)
+        
+        # Create the expected output file so stat() works
+        output_file = self.temp_dir / "test_success.safetensors"
+        output_file.write_bytes(b"dummy content")
+        self.test_files.append(output_file)
+        
+        mock_convert.return_value = "abc123"
+        
+        args = Namespace(
+            input=str(input_file),
+            output=str(output_file),
+            no_prune=False,
+            compute_hash=False,
+            overwrite=False,
+            notify=False,
+            force=False
+        )
+        
+        result = cli.cmd_convert(args)
+        
+        self.assertEqual(result, 0)
+        mock_convert.assert_called_once()
+    
+    @patch('model_merger.notifier.notify_conversion_success')
+    @patch('model_merger.notifier.should_notify')
+    @patch('model_merger.cli.print_header')
+    @patch('model_merger.cli.print_info')
+    @patch('model_merger.cli.print_completion')
+    @patch('model_merger.cli.converter_module.convert_to_safetensors')
+    def test_convert_success_sends_notification(
+        self, mock_convert, mock_completion, mock_info, mock_header,
+        mock_should_notify, mock_notify
+    ):
+        """Test that successful conversion sends notification when enabled."""
+        input_file = self.temp_dir / "test_notify.ckpt"
+        input_file.touch()
+        self.test_files.append(input_file)
+        
+        output_file = self.temp_dir / "test_notify.safetensors"
+        output_file.write_bytes(b"dummy content" * 100)
+        self.test_files.append(output_file)
+        
+        mock_convert.return_value = "abc123"
+        mock_should_notify.return_value = True
+        
+        args = Namespace(
+            input=str(input_file),
+            output=str(output_file),
+            no_prune=False,
+            compute_hash=False,
+            overwrite=False,
+            notify=True,
+            force=False
+        )
+        
+        result = cli.cmd_convert(args)
+        
+        self.assertEqual(result, 0)
+        mock_notify.assert_called_once()
 
 
 class TestCmdMerge(unittest.TestCase):
@@ -179,6 +251,8 @@ class TestCmdMerge(unittest.TestCase):
             overwrite=False,
             device=None,
             no_prune=False,
+            notify=False,
+            force=False
         )
         
         result = cli.cmd_merge(args)
@@ -448,6 +522,8 @@ class TestCmdVerify(unittest.TestCase):
             original=str(original_file),
             converted=str(converted_file),
             verbose=False,
+            notify=False,
+            force=False
         )
         
         result = cli.cmd_verify(args)
@@ -476,6 +552,8 @@ class TestCmdVerify(unittest.TestCase):
             original=str(original_file),
             converted=str(converted_file),
             verbose=True,
+            notify=False,
+            force=False
         )
         
         cli.cmd_verify(args)
@@ -523,6 +601,8 @@ class TestCliOverrides(unittest.TestCase):
             overwrite=True,  # Override!
             device=None,
             no_prune=False,
+            notify=False,
+            force=False
         )
         
         cli.cmd_merge(args)
@@ -530,6 +610,7 @@ class TestCliOverrides(unittest.TestCase):
         # Manifest should have been updated
         self.assertTrue(manifest.overwrite)
     
+    @patch('model_merger.cli.check_cuda_availability')
     @patch('model_merger.cli.print_header')
     @patch('model_merger.cli.print_manifest_summary')
     @patch('model_merger.cli.console')
@@ -540,9 +621,12 @@ class TestCliOverrides(unittest.TestCase):
     @patch('model_merger.cli.manifest_module.validate_manifest')
     def test_device_flag_overrides_manifest(
         self, mock_validate, mock_load, mock_error, mock_issues,
-        mock_success, mock_console, mock_summary, mock_header
+        mock_success, mock_console, mock_summary, mock_header, mock_cuda_check
     ):
         """Test that --device flag overrides manifest setting."""
+        # Mock check_cuda_availability to return the requested device
+        mock_cuda_check.side_effect = lambda x: x
+        
         models = [ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL")]
         manifest = MergeManifest(models=models, device='cpu')
         mock_load.return_value = manifest
@@ -556,6 +640,8 @@ class TestCliOverrides(unittest.TestCase):
             overwrite=False,
             device='cuda',  # Override!
             no_prune=False,
+            notify=False,
+            force=False
         )
         
         cli.cmd_merge(args)
@@ -588,11 +674,72 @@ class TestCliOverrides(unittest.TestCase):
             overwrite=False,
             device=None,
             no_prune=True,  # Override!
+            notify=False,
+            force=False
         )
         
         cli.cmd_merge(args)
         
         self.assertFalse(manifest.prune)
+
+
+class TestCheckCudaAvailability(unittest.TestCase):
+    """Tests for check_cuda_availability function."""
+    
+    def test_cpu_requested_returns_cpu(self):
+        """Test that requesting CPU always returns CPU."""
+        result = cli.check_cuda_availability('cpu')
+        self.assertEqual(result, 'cpu')
+    
+    @patch('torch.cuda.is_available')
+    @patch('model_merger.cli.console')
+    def test_cuda_requested_but_unavailable_returns_cpu(self, mock_console, mock_is_available):
+        """Test that requesting CUDA when unavailable falls back to CPU."""
+        mock_is_available.return_value = False
+        
+        result = cli.check_cuda_availability('cuda')
+        
+        self.assertEqual(result, 'cpu')
+        mock_is_available.assert_called_once()
+    
+    @patch('torch.cuda.is_available')
+    def test_cuda_requested_and_available_returns_cuda(self, mock_is_available):
+        """Test that requesting CUDA when available returns CUDA."""
+        mock_is_available.return_value = True
+        
+        result = cli.check_cuda_availability('cuda')
+        
+        self.assertEqual(result, 'cuda')
+        mock_is_available.assert_called_once()
+
+
+class TestPrintDeviceInfo(unittest.TestCase):
+    """Tests for print_device_info function."""
+    
+    @patch('torch.cuda.is_available')
+    @patch('model_merger.cli.console')
+    def test_print_device_info_cpu_no_cuda(self, mock_console, mock_is_available):
+        """Test printing device info when using CPU and no CUDA available."""
+        mock_is_available.return_value = False
+        
+        cli.print_device_info('cpu')
+        
+        # Should have called console.print multiple times
+        self.assertTrue(mock_console.print.called)
+    
+    @patch('torch.cuda.get_device_name')
+    @patch('torch.cuda.is_available')
+    @patch('model_merger.cli.console')
+    def test_print_device_info_cuda_available(self, mock_console, mock_is_available, mock_get_name):
+        """Test printing device info when CUDA is available."""
+        mock_is_available.return_value = True
+        mock_get_name.return_value = "NVIDIA GeForce RTX 3090"
+        
+        cli.print_device_info('cuda')
+        
+        # Should have called console.print and get_device_name
+        self.assertTrue(mock_console.print.called)
+        mock_get_name.assert_called_once_with(0)
 
 
 if __name__ == '__main__':
