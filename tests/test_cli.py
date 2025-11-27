@@ -41,6 +41,8 @@ class TestCmdScan(unittest.TestCase):
             compute_hashes=False,
             no_equal_weights=False,
             skip_errors=False,
+            notify=False,
+            force=False
         )
         
         result = cli.cmd_scan(args)
@@ -62,6 +64,8 @@ class TestCmdScan(unittest.TestCase):
             compute_hashes=False,
             no_equal_weights=False,
             skip_errors=False,
+            notify=False,
+            force=False
         )
         
         result = cli.cmd_scan(args)
@@ -92,6 +96,8 @@ class TestCmdConvert(unittest.TestCase):
             no_prune=False,
             compute_hash=False,
             overwrite=False,
+            notify=False,
+            force=False
         )
         
         result = cli.cmd_convert(args)
@@ -117,6 +123,8 @@ class TestCmdConvert(unittest.TestCase):
             no_prune=False,
             compute_hash=False,
             overwrite=False,
+            notify=False,
+            force=False
         )
         
         result = cli.cmd_convert(args)
@@ -145,6 +153,8 @@ class TestCmdMerge(unittest.TestCase):
             overwrite=False,
             device=None,
             no_prune=False,
+            notify=False,
+            force=False
         )
         
         result = cli.cmd_merge(args)
@@ -202,6 +212,8 @@ class TestCmdMerge(unittest.TestCase):
             overwrite=False,
             device=None,
             no_prune=False,
+            notify=False,
+            force=False
         )
         
         result = cli.cmd_merge(args)
@@ -251,6 +263,8 @@ class TestMain(unittest.TestCase):
             overwrite=False,
             device=None,
             no_prune=False,
+            notify=False,
+            force=False
         )
         mock_merge.return_value = 0
         
@@ -270,6 +284,8 @@ class TestMain(unittest.TestCase):
             no_prune=False,
             compute_hash=False,
             overwrite=False,
+            notify=False,
+            force=False
         )
         mock_convert.return_value = 0
         
@@ -283,10 +299,12 @@ class TestMain(unittest.TestCase):
     def test_verify_command_dispatches(self, mock_parse, mock_verify):
         """Test that verify command dispatches to cmd_verify."""
         mock_parse.return_value = Namespace(
-            command='verify',
+            command='verify',   
             original='/some/original.ckpt',
             converted='/some/converted.safetensors',
             verbose=False,
+            notify=False,
+            force=False
         )
         mock_verify.return_value = 0
         
@@ -317,6 +335,8 @@ class TestCmdVerify(unittest.TestCase):
             original="/nonexistent/original.ckpt",
             converted=str(self.temp_dir / "converted.safetensors"),
             verbose=False,
+            notify=False,
+            force=False
         )
         
         result = cli.cmd_verify(args)
@@ -337,6 +357,8 @@ class TestCmdVerify(unittest.TestCase):
             original=str(original_file),
             converted="/nonexistent/converted.safetensors",
             verbose=False,
+            notify=False,
+            force=False
         )
         
         result = cli.cmd_verify(args)
@@ -367,6 +389,8 @@ class TestCmdVerify(unittest.TestCase):
             original=str(original_file),
             converted=str(converted_file),
             verbose=False,
+            notify=False,
+            force=False
         )
         
         result = cli.cmd_verify(args)
@@ -396,6 +420,8 @@ class TestCmdVerify(unittest.TestCase):
             original=str(original_file),
             converted=str(converted_file),
             verbose=False,
+            notify=False,
+            force=False
         )
         
         result = cli.cmd_verify(args)
