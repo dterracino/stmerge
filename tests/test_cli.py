@@ -277,6 +277,187 @@ class TestMain(unittest.TestCase):
         
         mock_convert.assert_called_once()
         self.assertEqual(result, 0)
+    
+    @patch('model_merger.cli.cmd_verify')
+    @patch('model_merger.cli.argparse.ArgumentParser.parse_args')
+    def test_verify_command_dispatches(self, mock_parse, mock_verify):
+        """Test that verify command dispatches to cmd_verify."""
+        mock_parse.return_value = Namespace(
+            command='verify',
+            original='/some/original.ckpt',
+            converted='/some/converted.safetensors',
+            verbose=False,
+        )
+        mock_verify.return_value = 0
+        
+        result = cli.main()
+        
+        mock_verify.assert_called_once()
+        self.assertEqual(result, 0)
+
+
+class TestCmdVerify(unittest.TestCase):
+    """Tests for cmd_verify function."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_files = []
+        self.temp_dir = Path(tempfile.mkdtemp())
+    
+    def tearDown(self):
+        """Clean up test files."""
+        cleanup_test_files(self.test_files)
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+    
+    @patch('model_merger.cli.print_header')
+    @patch('model_merger.cli.print_error')
+    def test_verify_nonexistent_original_returns_error(self, mock_error, mock_header):
+        """Test that verify with non-existent original file returns error."""
+        args = Namespace(
+            original="/nonexistent/original.ckpt",
+            converted=str(self.temp_dir / "converted.safetensors"),
+            verbose=False,
+        )
+        
+        result = cli.cmd_verify(args)
+        
+        self.assertEqual(result, 1)
+        mock_error.assert_called()
+    
+    @patch('model_merger.cli.print_header')
+    @patch('model_merger.cli.print_error')
+    def test_verify_nonexistent_converted_returns_error(self, mock_error, mock_header):
+        """Test that verify with non-existent converted file returns error."""
+        # Create only the original file
+        original_file = self.temp_dir / "original.ckpt"
+        original_file.touch()
+        self.test_files.append(original_file)
+        
+        args = Namespace(
+            original=str(original_file),
+            converted="/nonexistent/converted.safetensors",
+            verbose=False,
+        )
+        
+        result = cli.cmd_verify(args)
+        
+        self.assertEqual(result, 1)
+        mock_error.assert_called()
+    
+    @patch('model_merger.cli.print_header')
+    @patch('model_merger.cli.print_error')
+    @patch('model_merger.cli.print_success')
+    @patch('model_merger.cli.console')
+    @patch('model_merger.cli.verifier_module.verify_conversion')
+    def test_verify_success_returns_zero(
+        self, mock_verify, mock_console, mock_success, mock_error, mock_header
+    ):
+        """Test that successful verification returns 0."""
+        # Create both files
+        original_file = self.temp_dir / "original.ckpt"
+        converted_file = self.temp_dir / "converted.safetensors"
+        original_file.touch()
+        converted_file.touch()
+        self.test_files.extend([original_file, converted_file])
+        
+        # Mock successful verification
+        mock_verify.return_value = True
+        
+        args = Namespace(
+            original=str(original_file),
+            converted=str(converted_file),
+            verbose=False,
+        )
+        
+        result = cli.cmd_verify(args)
+        
+        self.assertEqual(result, 0)
+        mock_success.assert_called()
+    
+    @patch('model_merger.cli.print_header')
+    @patch('model_merger.cli.print_error')
+    @patch('model_merger.cli.console')
+    @patch('model_merger.cli.verifier_module.verify_conversion')
+    def test_verify_failure_returns_one(
+        self, mock_verify, mock_console, mock_error, mock_header
+    ):
+        """Test that failed verification returns 1."""
+        # Create both files
+        original_file = self.temp_dir / "original.ckpt"
+        converted_file = self.temp_dir / "converted.safetensors"
+        original_file.touch()
+        converted_file.touch()
+        self.test_files.extend([original_file, converted_file])
+        
+        # Mock failed verification
+        mock_verify.return_value = False
+        
+        args = Namespace(
+            original=str(original_file),
+            converted=str(converted_file),
+            verbose=False,
+        )
+        
+        result = cli.cmd_verify(args)
+        
+        self.assertEqual(result, 1)
+        mock_error.assert_called()
+    
+    @patch('model_merger.cli.print_header')
+    @patch('model_merger.cli.print_error')
+    @patch('model_merger.cli.verifier_module.verify_conversion')
+    def test_verify_exception_returns_error(self, mock_verify, mock_error, mock_header):
+        """Test that verification exception returns error code."""
+        # Create both files
+        original_file = self.temp_dir / "original.ckpt"
+        converted_file = self.temp_dir / "converted.safetensors"
+        original_file.touch()
+        converted_file.touch()
+        self.test_files.extend([original_file, converted_file])
+        
+        # Mock verification exception
+        mock_verify.side_effect = RuntimeError("Verification error")
+        
+        args = Namespace(
+            original=str(original_file),
+            converted=str(converted_file),
+            verbose=False,
+        )
+        
+        result = cli.cmd_verify(args)
+        
+        self.assertEqual(result, 1)
+        mock_error.assert_called()
+    
+    @patch('model_merger.cli.print_header')
+    @patch('model_merger.cli.print_success')
+    @patch('model_merger.cli.console')
+    @patch('model_merger.cli.verifier_module.verify_conversion')
+    def test_verify_verbose_flag_passed(
+        self, mock_verify, mock_console, mock_success, mock_header
+    ):
+        """Test that verbose flag is passed to verify_conversion."""
+        # Create both files
+        original_file = self.temp_dir / "original.ckpt"
+        converted_file = self.temp_dir / "converted.safetensors"
+        original_file.touch()
+        converted_file.touch()
+        self.test_files.extend([original_file, converted_file])
+        
+        mock_verify.return_value = True
+        
+        args = Namespace(
+            original=str(original_file),
+            converted=str(converted_file),
+            verbose=True,
+        )
+        
+        cli.cmd_verify(args)
+        
+        # Check verbose was passed
+        mock_verify.assert_called_once()
+        call_kwargs = mock_verify.call_args[1]
+        self.assertTrue(call_kwargs.get('verbose'))
 
 
 class TestCliOverrides(unittest.TestCase):
