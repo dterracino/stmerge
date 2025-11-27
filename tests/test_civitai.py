@@ -261,6 +261,7 @@ class TestGetModelMetadataSummary(unittest.TestCase):
     def test_complete_summary(self, mock_detect_arch, mock_get_version):
         """Test complete metadata summary generation."""
         mock_get_version.return_value = {
+            'modelId': 12345,
             'name': 'v2.0',
             'baseModel': 'SDXL 1.0',
             'trainedWords': ['trigger1', 'trigger2'],
@@ -277,6 +278,7 @@ class TestGetModelMetadataSummary(unittest.TestCase):
         
         self.assertIsNotNone(result)
         assert result is not None  # Type guard for mypy/pylance
+        self.assertEqual(result['model_id'], 12345)
         self.assertEqual(result['model_name'], 'Test Model')
         self.assertEqual(result['version_name'], 'v2.0')
         self.assertEqual(result['architecture'], 'SDXL')

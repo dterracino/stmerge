@@ -212,6 +212,7 @@ def get_model_metadata_summary(file_hash: str) -> Optional[Dict[str, Any]]:
         Dictionary with summary fields or None if not found
         
     Summary fields:
+        - model_id: CivitAI model ID (for future direct lookups)
         - model_name: Name of the model
         - version_name: Name of this version
         - architecture: Detected architecture (Pony, SDXL, etc.)
@@ -234,6 +235,7 @@ def get_model_metadata_summary(file_hash: str) -> Optional[Dict[str, Any]]:
     model_data = model_info.get('model', {})
     
     return {
+        'model_id': model_info.get('modelId'),
         'model_name': model_data.get('name'),
         'version_name': model_info.get('name'),
         'architecture': detect_architecture_from_civitai(file_hash),

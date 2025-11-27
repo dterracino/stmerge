@@ -216,6 +216,188 @@ stats = {
 
 ---
 
+## v0.8.0 - Model Metadata Cache & CivitAI Integration (IN PROGRESS)
+
+### Feature: Persistent Metadata Cache
+
+**Goal:** Cache model metadata (hash, architecture, precision, CivitAI data) to avoid recomputing hashes and redundant API calls on subsequent operations.
+
+**Problem:**
+
+- Computing SHA-256 hashes takes 5-10 seconds per large model
+- CivitAI API lookups add latency and hit rate limits
+- Architecture detection from filenames is less accurate than CivitAI's baseModel field
+- Repeated operations on same models waste time
+
+**Solution:** JSON-based cache at `~/.model_merger/model_cache.json` with automatic staleness detection.
+
+#### Cache Data Structure
+
+```json
+{
+  "version": 1,
+  "models": {
+    "sha256_hash_here": {
+      "filename": "pony_model_v1.safetensors",
+      "sha256": "abc123...",
+      "file_size": 6535231488,
+      "last_modified": "2025-11-26T10:30:00Z",
+      "precision": "fp16",
+      "architecture": "Pony",
+      "civitai": {
+        "model_id": 12345,
+        "version_id": 67890,
+        "base_model": "Pony",
+        "model_name": "Pony Realistic",
+        "version_name": "v1.0",
+        "nsfw": false,
+        "trained_words": ["realistic", "pony"]
+      },
+      "cached_at": "2025-11-26T10:30:00Z"
+    }
+  }
+}
+```
+
+#### Integration Points
+
+**1. Model Loading (`loader.py` - `load_model()`)**
+
+- Check cache by file path first (validates with size/mtime)
+- If valid cache hit: use cached hash, skip recomputation (~5-10s saved)
+- If cache miss: compute hash, update cache with hash + detected precision
+- **Benefit:** Faster subsequent loads of same models
+
+**2. Manifest Generation (`manifest.py` - `scan_models_folder()`)**
+
+- For each model file, check cache first
+- If cached: use cached architecture (prefer CivitAI data over filename detection)
+- If not cached: detect from filename, optionally query CivitAI, store in cache
+- **Benefit:** More accurate architecture detection, faster scans
+
+**3. CivitAI Lookups (`civitai.py` - `get_model_version_by_hash()`)**
+
+- Check if we have cached CivitAI metadata for this hash
+- If cached: return cached data, skip API call
+- If not cached: make API call, store response in cache
+- **Note:** CivitAI data includes version_id - version changes create new IDs, so cache stays valid
+- **Benefit:** Massive speed improvement, avoids API rate limits
+
+**4. Merge Process (`saver.py` - `save_model()`)**
+
+- After saving merged model, add to cache with computed metadata
+- Stores merged model's hash, architecture, precision for future use
+- **Benefit:** Merged models can be used as inputs to future merges efficiently
+
+**5. Conversion Process (`converter.py` - `convert_to_safetensors()`)**
+
+- Cache the converted model's metadata after conversion
+- Preserve CivitAI metadata from source if available
+- **Benefit:** Converted models integrate smoothly into cached workflow
+
+#### CLI: New `cache` Subcommand
+
+**Purpose:** Manage cache independently before integrating into core workflows. Allows testing and pre-population.
+
+**Commands:**
+
+```bash
+# Show cache statistics (entries, size, location, staleness)
+stmerge cache info
+
+# List all cached entries with summary table
+stmerge cache list
+
+# Show detailed info for specific cached entry
+stmerge cache show <hash_or_filename>
+
+# Add file(s) or folder to cache (auto-detects files vs folders)
+stmerge cache add <path> [--civitai] [--recurse] [--force]
+
+# Remove specific entry from cache
+stmerge cache remove <hash_or_filename>
+
+# Clear entire cache (with confirmation prompt)
+stmerge cache clear [--yes]
+
+# Verify cached entries against actual files, report stale entries
+stmerge cache verify [<folder>] [--prune]
+```
+
+**Flags:**
+
+- `--civitai` / `--no-civitai`: Enable/disable CivitAI API lookups (default: auto-detect from API key)
+- `--cache` / `--no-cache`: Enable/disable cache usage (default: enabled)
+- `--recurse`: Recursively process subfolders
+- `--force`: Force re-cache even if entry exists (useful for refreshing CivitAI data)
+- `--prune`: Automatically remove stale entries during verification
+- `--quiet`: Suppress progress output
+
+#### Default Behaviors
+
+**Cache usage:** Enabled by default once integrated
+
+- Use `--no-cache` to bypass cache and work directly with files
+- Cache operations are silent/fast, don't require user interaction
+
+**CivitAI lookups:** Enabled by default if API key configured
+
+- Auto-detect from `CIVITAI_API_KEY` environment variable
+- Use `--no-civitai` / `--skip-civitai` to explicitly disable
+- No API calls if key not configured (graceful degradation)
+
+**Startup display:** Enhanced to show active features
+
+- Current: Shows GPU usage, device selection
+- Add: Cache status (enabled/disabled, entry count)
+- Add: CivitAI API status (enabled/disabled, key configured)
+
+#### Staleness Detection
+
+**File-based staleness:**
+
+- Compare file size and last modified time
+- If either changes, cache entry is invalid
+- Automatic on every cache lookup
+
+**CivitAI staleness:**
+
+- Version ID is immutable - new versions get new IDs
+- Cache remains valid until file itself changes
+- No expiration needed for CivitAI metadata
+- Optional: Future feature to check for newer versions based on model_id
+
+#### Implementation Status
+
+**Completed:**
+
+- ✅ `cache.py` module with `CachedModelInfo` and `CivitAIMetadata` dataclasses
+- ✅ `ModelCache` class with load/save, query by hash/path
+- ✅ Staleness detection (file size + mtime)
+- ✅ Atomic writes (temp file + rename) for safety
+- ✅ Graceful handling of corrupted cache files
+- ✅ Schema versioning for future migrations
+- ✅ 21 comprehensive unit tests
+- ✅ Cache file path constant in `config.py`
+- ✅ Exported cache functions from `__init__.py`
+
+**In Progress:**
+
+- 🔄 CLI `cache` subcommand implementation
+- 🔄 Integration into core workflows (loader, manifest, civitai, saver, converter)
+
+**Planned:**
+
+- ⏳ Startup display enhancements
+- ⏳ Progress bars for cache scan operations
+- ⏳ Rate limiting for batch CivitAI queries
+- ⏳ Cache statistics and reporting
+- ⏳ Documentation updates (installation, usage, FAQ)
+
+**Priority:** High - foundational feature for performance and UX improvements
+
+---
+
 ## Design Principles (Keep These in Mind!)
 
 1. **Security First** - Never compromise on safe loading
@@ -253,4 +435,4 @@ stats = {
 
 ---
 
-Last Updated: 2024-11-26
+Last Updated: 2025-11-27

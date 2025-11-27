@@ -37,10 +37,20 @@ from .config import (
     has_civitai_api_key,
 )
 
+from .hasher import (
+    compute_file_hash,
+    compute_autov1,
+    compute_autov2,
+    compute_sha256,
+    compute_md5,
+    compute_crc32,
+    compute_blake3,
+    verify_file_hash,
+)
+
 from .loader import (
     load_model,
     load_vae,
-    compute_file_hash,
     validate_models_compatible,
 )
 
@@ -108,6 +118,16 @@ from .civitai import (
     get_model_metadata_summary,
 )
 
+from .cache import (
+    ModelCache,
+    CachedModelInfo,
+    CivitAIMetadata,
+    get_cache,
+    get_cached_metadata,
+    update_cache,
+    invalidate_cache,
+)
+
 __all__ = [
     # Config
     'detect_architecture_from_filename',
@@ -116,10 +136,19 @@ __all__ = [
     'get_civitai_api_key',
     'has_civitai_api_key',
     
+    # Hasher
+    'compute_file_hash',
+    'compute_autov1',
+    'compute_autov2',
+    'compute_sha256',
+    'compute_md5',
+    'compute_crc32',
+    'compute_blake3',
+    'verify_file_hash',
+    
     # Loader
     'load_model',
     'load_vae',
-    'compute_file_hash',
     'validate_models_compatible',
     
     # Manifest
@@ -176,4 +205,13 @@ __all__ = [
     'get_model_version_by_hash',
     'detect_architecture_from_civitai',
     'get_model_metadata_summary',
+    
+    # Cache
+    'ModelCache',
+    'CachedModelInfo',
+    'CivitAIMetadata',
+    'get_cache',
+    'get_cached_metadata',
+    'update_cache',
+    'invalidate_cache',
 ]

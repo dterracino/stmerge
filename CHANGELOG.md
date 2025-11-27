@@ -10,8 +10,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### In Progress
 
-- CivitAI API integration for automatic model metadata lookup by hash
-- Automatic architecture detection from CivitAI database
+- Model metadata caching system with automatic staleness detection
+- CLI `cache` subcommand for cache management operations
+- Integration of cache into core workflows (loader, manifest, merge, convert)
+
+### Added
+
+- **CivitAI API Integration**
+  - `civitai.py` module for querying CivitAI API by model hash
+  - `get_model_version_by_hash()` - Fetch model metadata from CivitAI
+  - `detect_architecture_from_civitai()` - Automatic architecture detection from CivitAI baseModel field
+  - `get_model_metadata_summary()` - Simplified model metadata with model_id, version_id, architecture, etc.
+  - Environment variable support for `CIVITAI_API_KEY` configuration
+  - Automatic fallback to filename detection when CivitAI lookup fails
+  - `.env.example` template for API key configuration
+  - `example_civitai_api.py` demonstrating API integration workflow
+
+- **Model Metadata Cache System**
+  - `cache.py` module with persistent JSON-based caching at `~/.model_merger/model_cache.json`
+  - `CachedModelInfo` dataclass storing filename, hash, size, mtime, precision, architecture
+  - `CivitAIMetadata` dataclass storing model_id, version_id, base_model, nsfw, trained_words
+  - `ModelCache` class with load/save, query by hash/path, automatic staleness detection
+  - Staleness detection based on file size and modification time
+  - Atomic writes (temp file + rename) for cache safety
+  - Graceful handling of corrupted cache files
+  - Schema versioning for future migrations
+  - Convenience functions: `get_cached_metadata()`, `update_cache()`, `invalidate_cache()`
+
+- **Hash Algorithm Support**
+  - Refactored hashing into dedicated `hasher.py` module
+  - Multi-algorithm support: SHA-256, MD5, CRC32, Blake3 (optional)
+  - CivitAI algorithm stubs: AutoV1, AutoV2 (to be implemented)
+  - `compute_file_hash()` with algorithm selection
+  - Convenience functions: `compute_sha256()`, `compute_md5()`, `compute_crc32()`, `compute_blake3()`
+  - `verify_file_hash()` for hash verification
+  - Progress bars for all hashing operations
+  - Chunked reading to avoid loading entire files into memory
+
+- **Architecture Detection Improvements**
+  - `detect_architecture_from_filename_strict()` removed (technical debt cleanup)
+  - Smarter fallback chain: CivitAI baseModel → model name → tags → filename → None
+  - Fixed Illustrious architecture detection order (check before generic SDXL)
+  - Architecture detection now prefers explicit pattern matches over defaults
+
+### Changed
+
+- **Hashing Logic Refactored**
+  - Moved `compute_file_hash()` from `loader.py` to `hasher.py`
+  - `loader.py` now imports hashing functions from `hasher` module
+  - All hashing operations centralized in one module for easier maintenance
+
+- **CivitAI Integration**
+  - Model version_id included in cached metadata for future version checking
+  - CivitAI data cached to avoid redundant API calls
+  - API lookups respect environment variable configuration
+
+- **Example Scripts**
+  - `example_civitai_api.py` optimized to hash file only once (performance improvement)
+
+### Fixed
+
+- Architecture detection returning default (SDXL) when checking model names/tags
+- Test failures in `test_civitai.py` for tag detection and fallback behavior
+- Import errors in test files (requests module not imported)
+- Mock patch paths in cache tests (corrected to `console.print_warning`)
+
+### Testing
+
+- 33 comprehensive unit tests for `civitai.py` module
+- 21 unit tests for `cache.py` module covering load/save/query/staleness
+- 20 unit tests for `hasher.py` module with multiple algorithm support
+- All tests passing with proper mocking and isolation
 
 ### Planned
 

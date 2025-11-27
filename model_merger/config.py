@@ -131,6 +131,9 @@ FILENAME_STRIP_CHARS = r'[_\-\.\s]+'  # Regex pattern for chars to strip
 CIVITAI_API_KEY_ENV_VAR = 'CIVITAI_API_KEY'
 CIVITAI_API_BASE_URL = 'https://civitai.com/api/v1'
 
+# Cache configuration
+CACHE_FILE_PATH = Path.home() / '.model_merger' / 'model_cache.json'
+
 
 def detect_architecture_from_filename(filename: str) -> str:
     """

@@ -19,11 +19,16 @@ from model_merger.civitai import (
 )
 
 # Example model path - update this to an actual model on your system
-EXAMPLE_MODEL_PATH = Path("models/miaomiaoHarem_v175.safetensors")
+#EXAMPLE_MODEL_PATH = Path("models/miaomiaoHarem_v175.safetensors")
+EXAMPLE_MODEL_PATH = Path("models/cyberrealisticPony_catalystV40DMD2.safetensors")
 
 
 def example_civitai_integration():
-    """Example of checking for and using the CivitAI API key."""
+    """Example of checking for and using the CivitAI API key.
+    
+    Returns:
+        File hash if successful, None otherwise
+    """
     
     # Check if API key is configured
     if not has_civitai_api_key():
@@ -32,7 +37,7 @@ def example_civitai_integration():
         console.print("1. Copy .env.example to .env")
         console.print("2. Get your API key from https://civitai.com/user/account")
         console.print("3. Add it to .env: CIVITAI_API_KEY=your_key_here")
-        return
+        return None
     
     print_success("CivitAI API key is configured!")
     
@@ -40,7 +45,7 @@ def example_civitai_integration():
     if not EXAMPLE_MODEL_PATH.exists():
         print_error(f"Example model not found: {EXAMPLE_MODEL_PATH}")
         console.print("\n[yellow]Update EXAMPLE_MODEL_PATH in this file to point to an actual model.[/yellow]")
-        return
+        return None
     
     console.print(f"\n[cyan]Analyzing model:[/cyan] {EXAMPLE_MODEL_PATH.name}")
     
@@ -61,7 +66,7 @@ def example_civitai_integration():
         console.print("  - Model is not hosted on CivitAI")
         console.print("  - Hash hasn't been indexed yet (new model)")
         console.print("  - Hash doesn't match any known versions")
-        return
+        return None
     
     print_success("Model found in CivitAI!")
     
@@ -98,21 +103,15 @@ def example_civitai_integration():
     # Show raw data structure
     console.print("\n[dim]Full API response available in model_info variable[/dim]")
     console.print(f"[dim]Keys: {', '.join(model_info.keys())}[/dim]")
+    
+    # Return the hash for use by other examples
+    return file_hash
 
 
-def example_architecture_detection():
+def example_architecture_detection(file_hash: str):
     """Example of automatic architecture detection."""
     
-    if not has_civitai_api_key():
-        return
-    
-    if not EXAMPLE_MODEL_PATH.exists():
-        return
-    
     console.print("\n[bold cyan]═══ Architecture Detection Example ═══[/bold cyan]")
-    
-    # Compute hash
-    file_hash = compute_file_hash(EXAMPLE_MODEL_PATH)
     
     # Method 1: Detect from CivitAI with filename fallback
     arch = detect_architecture_from_civitai(file_hash, EXAMPLE_MODEL_PATH.name)
@@ -130,8 +129,12 @@ if __name__ == '__main__':
     console.print("[bold cyan]   CivitAI API Integration Example   [/bold cyan]")
     console.print("[bold cyan]═══════════════════════════════════════[/bold cyan]")
     
-    example_civitai_integration()
-    example_architecture_detection()
+    # Run main example and get the file hash
+    file_hash = example_civitai_integration()
+    
+    # Only run architecture detection if we got a hash
+    if file_hash:
+        example_architecture_detection(file_hash)
     
     console.print("\n[bold green]✓[/bold green] Example complete!")
 
