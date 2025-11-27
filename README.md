@@ -35,9 +35,11 @@ pip install -r requirements.txt
 
 - Python 3.8+
 - PyTorch 2.0+
-- safetensors
-- rich (for beautiful terminal output)
-- packaging (dependency of safetensors)
+- safetensors 0.4.0+
+- rich 13.0+ (for beautiful terminal output)
+- tqdm 4.65+ (for progress bars)
+- numpy 1.24+
+- packaging 21.0+ (dependency of safetensors)
 
 ## Quick Start
 
