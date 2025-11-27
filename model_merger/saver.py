@@ -33,7 +33,7 @@ def prepare_tensors(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tens
     
     This function:
     1. Makes all tensors contiguous (safetensors requirement)
-    2. Clones all tensors to ensure independence (breaks memory sharing)
+    2. Clones all shared tensors to ensure independence (breaks memory sharing)
     
     The clone() operation creates new memory, so if tensors were sharing
     before, they won't be after this. It's brute-force but foolproof!
@@ -48,7 +48,11 @@ def prepare_tensors(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tens
     
     prepared = {}
     contiguous_count = 0
+    cloned_count = 0
     total_tensors = 0
+    
+    # Track tensor data pointers to detect sharing
+    seen_data_ptrs = {}
     
     with create_progress() as progress:
         task = progress.add_task("Preparing tensors", total=len(state_dict))
@@ -62,9 +66,17 @@ def prepare_tensors(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tens
                     value = value.contiguous()
                     contiguous_count += 1
                 
-                # Step 2: Clone to ensure independence
-                # This breaks any memory sharing between tensors
-                prepared[key] = value.clone()
+                # Step 2: Check if this tensor shares memory with another
+                data_ptr = value.data_ptr()
+                
+                if data_ptr in seen_data_ptrs:
+                    # Shared memory detected! Clone to make independent
+                    prepared[key] = value.clone()
+                    cloned_count += 1
+                else:
+                    # Not shared, use as-is (no clone needed!)
+                    prepared[key] = value
+                    seen_data_ptrs[data_ptr] = key
             else:
                 # Keep non-tensor values as-is
                 prepared[key] = value
@@ -72,7 +84,7 @@ def prepare_tensors(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tens
             progress.advance(task)
     
     console.print(f"  [dim]Made {contiguous_count} tensors contiguous[/dim]")
-    console.print(f"  [dim]Cloned {total_tensors} tensors to ensure independence[/dim]")
+    console.print(f"  [dim]Cloned {cloned_count} shared tensors (out of {total_tensors} total)[/dim]")
     
     return prepared
 

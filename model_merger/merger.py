@@ -73,6 +73,7 @@ def merge_models(
     
     # Multiply first model by its weight
     console.print(f"  [cyan]Applying weight {first_entry.weight}...[/cyan]")
+
     with create_progress() as progress:
         task = progress.add_task("Weighting base model", total=len(accumulator))
         for key in accumulator.keys():
@@ -130,10 +131,10 @@ def merge_models(
                 
                 if 'weight' in key or 'bias' in key:
                     # Add weighted tensor to accumulator
-                    accumulator[key] = (
-                        accumulator[key] + 
-                        current_model[key].to(torch.float32) * entry.weight
-                    )
+                    # In-place addition to avoid creating intermediate tensors
+                    weighted_tensor = current_model[key].to(torch.float32) * entry.weight
+                    accumulator[key].add_(weighted_tensor)  # In-place!
+                    del weighted_tensor  # Free immediately
                     merged_keys += 1
                 
                 progress.advance(task)
