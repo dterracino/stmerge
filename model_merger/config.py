@@ -9,8 +9,13 @@ Users can customize by creating ~/.model_merger/architecture_patterns.json
 """
 
 import json
-from typing import List, Set, Dict
+import os
+from typing import List, Set, Dict, Optional
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Supported file formats
 SUPPORTED_MODEL_EXTENSIONS = {'.safetensors'}
@@ -122,6 +127,10 @@ DEFAULT_OUTPUT_DIR = 'output'
 FILENAME_PREFIX_LENGTH = 8  # How many chars to take from each model name
 FILENAME_STRIP_CHARS = r'[_\-\.\s]+'  # Regex pattern for chars to strip
 
+# CivitAI API configuration
+CIVITAI_API_KEY_ENV_VAR = 'CIVITAI_API_KEY'
+CIVITAI_API_BASE_URL = 'https://civitai.com/api/v1'
+
 
 def detect_architecture_from_filename(filename: str) -> str:
     """
@@ -189,3 +198,33 @@ def should_skip_merge_key(key: str) -> bool:
         True if key should be skipped during merge
     """
     return key in SKIP_MERGE_KEYS
+
+
+def get_civitai_api_key() -> Optional[str]:
+    """
+    Get the CivitAI API key from environment variables.
+    
+    Looks for the API key in the CIVITAI_API_KEY environment variable.
+    If using a .env file, python-dotenv will load it automatically.
+    
+    Returns:
+        API key string if found, None otherwise
+        
+    Example:
+        >>> key = get_civitai_api_key()
+        >>> if key:
+        ...     # Use the API key
+        ... else:
+        ...     print("No API key configured")
+    """
+    return os.environ.get(CIVITAI_API_KEY_ENV_VAR)
+
+
+def has_civitai_api_key() -> bool:
+    """
+    Check if a CivitAI API key is configured.
+    
+    Returns:
+        True if API key is available, False otherwise
+    """
+    return get_civitai_api_key() is not None

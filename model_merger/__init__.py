@@ -33,6 +33,8 @@ from .config import (
     detect_architecture_from_filename,
     should_prune_key,
     should_skip_merge_key,
+    get_civitai_api_key,
+    has_civitai_api_key,
 )
 
 from .loader import (
@@ -100,11 +102,19 @@ from .notifier import (
     notify_merge_failure,
 )
 
+from .civitai import (
+    get_model_version_by_hash,
+    detect_architecture_from_civitai,
+    get_model_metadata_summary,
+)
+
 __all__ = [
     # Config
     'detect_architecture_from_filename',
     'should_prune_key',
     'should_skip_merge_key',
+    'get_civitai_api_key',
+    'has_civitai_api_key',
     
     # Loader
     'load_model',
@@ -161,4 +171,9 @@ __all__ = [
     'notify_batch_complete',
     'notify_merge_success',
     'notify_merge_failure',
+    
+    # CivitAI
+    'get_model_version_by_hash',
+    'detect_architecture_from_civitai',
+    'get_model_metadata_summary',
 ]

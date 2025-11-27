@@ -1,8 +1,11 @@
 # Development dependencies for model_merger
 # Install with: pip install -r requirements-dev.txt
+#
+# Note: Installs GPU version by default (CUDA 12.1)
+# For CPU-only development: pip install -r requirements-cpu.txt && pip install coverage>=7.3.0
 
-# Include production dependencies
--r requirements.txt
+# Include GPU production dependencies
+-r requirements-gpu.txt
 
 # Code coverage for unittest
 coverage>=7.3.0

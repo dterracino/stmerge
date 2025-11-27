@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### In Progress
+
+- CivitAI API integration for automatic model metadata lookup by hash
+- Automatic architecture detection from CivitAI database
+
 ### Planned
 
 - Batch conversion (convert entire folders at once)

@@ -1,14 +1,14 @@
 # Core dependencies for model_merger
-torch>=2.0.0
+# Note: This file does NOT include PyTorch. Use one of the following:
+#   - pip install -r requirements-cpu.txt  (CPU-only, smaller download)
+#   - pip install -r requirements-gpu.txt  (CUDA support, requires compatible GPU)
+
 safetensors>=0.4.0
-tqdm>=4.65.0
 numpy>=1.24.0
 packaging>=21.0  # Required by safetensors
 rich>=13.0.0     # Beautiful terminal formatting
+python-dotenv>=1.0.0  # Load environment variables from .env file
+requests>=2.31.0  # HTTP client for CivitAI API
 
 # Notifications (Windows only, optional)
 win10toast>=0.9; platform_system=="Windows"  # Toast notifications for long operations
-
-# Optional but recommended
-# Uncomment if you want to use CUDA acceleration
-# torch>=2.0.0+cu118
