@@ -144,7 +144,7 @@ class TestExtractStateDict(unittest.TestCase):
         with self.assertRaises(ValueError) as context:
             converter.extract_state_dict(checkpoint)
         
-        self.assertIn("Unknown checkpoint format", str(context.exception))
+        self.assertIn("Cannot find tensors in checkpoint!", str(context.exception))
     
     @patch('model_merger.converter.console')
     def test_invalid_state_dict_type_raises(self, mock_console):
@@ -239,9 +239,10 @@ class TestConvertToSafetensors(unittest.TestCase):
         with self.assertRaises(Exception):
             converter.convert_to_safetensors(Path("nonexistent.ckpt"))
     
+    @patch('model_merger.converter.verify_conversion')
     @patch('model_merger.converter.console')
-    @patch('model_merger.converter.save_model')
-    def test_conversion_creates_safetensors(self, mock_save, mock_console):
+    @patch('model_merger.saver.save_model')
+    def test_conversion_creates_safetensors(self, mock_save, mock_console, mock_verify):
         """Test that conversion creates safetensors file."""
         mock_save.return_value = "abc123" * 10 + "abcd"
         
@@ -253,9 +254,10 @@ class TestConvertToSafetensors(unittest.TestCase):
         # Verify save_model was called
         mock_save.assert_called_once()
     
+    @patch('model_merger.converter.verify_conversion')
     @patch('model_merger.converter.console')
-    @patch('model_merger.converter.save_model')
-    def test_default_output_path(self, mock_save, mock_console):
+    @patch('model_merger.saver.save_model')
+    def test_default_output_path(self, mock_save, mock_console, mock_verify):
         """Test that default output path has .safetensors extension."""
         mock_save.return_value = "def456" * 10 + "defg"
         
@@ -269,9 +271,10 @@ class TestConvertToSafetensors(unittest.TestCase):
         output_path = call_args[1]['output_path']
         self.assertTrue(str(output_path).endswith('.safetensors'))
     
+    @patch('model_merger.converter.verify_conversion')
     @patch('model_merger.converter.console')
-    @patch('model_merger.converter.save_model')
-    def test_custom_output_path(self, mock_save, mock_console):
+    @patch('model_merger.saver.save_model')
+    def test_custom_output_path(self, mock_save, mock_console, mock_verify):
         """Test conversion with custom output path."""
         mock_save.return_value = "ghi789" * 10 + "ghij"
         
@@ -285,9 +288,10 @@ class TestConvertToSafetensors(unittest.TestCase):
         actual_output = call_args[1]['output_path']
         self.assertEqual(Path(actual_output), output_path)
     
+    @patch('model_merger.converter.verify_conversion')
     @patch('model_merger.converter.console')
-    @patch('model_merger.converter.save_model')
-    def test_prune_enabled_by_default(self, mock_save, mock_console):
+    @patch('model_merger.saver.save_model')
+    def test_prune_enabled_by_default(self, mock_save, mock_console, mock_verify):
         """Test that pruning is enabled by default."""
         mock_save.return_value = "jkl012" * 10 + "jklm"
         
@@ -305,9 +309,10 @@ class TestConvertToSafetensors(unittest.TestCase):
         for key in state_dict.keys():
             self.assertFalse(key.startswith("optimizer"))
     
+    @patch('model_merger.converter.verify_conversion')
     @patch('model_merger.converter.console')
-    @patch('model_merger.converter.save_model')
-    def test_no_prune_option(self, mock_save, mock_console):
+    @patch('model_merger.saver.save_model')
+    def test_no_prune_option(self, mock_save, mock_console, mock_verify):
         """Test conversion without pruning."""
         mock_save.return_value = "mno345" * 10 + "mnop"
         

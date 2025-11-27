@@ -15,8 +15,8 @@ from model_merger.manifest import MergeManifest, ModelEntry, VAEEntry, OutputEnt
 from tests.helpers import create_dummy_model, cleanup_test_files
 
 
-class TestEnsureContiguous(unittest.TestCase):
-    """Tests for ensure_contiguous function."""
+class TestPrepareTensors(unittest.TestCase):
+    """Tests for prepare_tensors function."""
     
     @patch('model_merger.saver.console')
     @patch('model_merger.saver.create_progress')
@@ -28,7 +28,7 @@ class TestEnsureContiguous(unittest.TestCase):
         original = torch.randn(10, 10)
         state_dict = {"layer.weight": original}
         
-        result = saver.ensure_contiguous(state_dict)
+        result = saver.prepare_tensors(state_dict)
         
         self.assertTrue(result["layer.weight"].is_contiguous())
     
@@ -45,7 +45,7 @@ class TestEnsureContiguous(unittest.TestCase):
         
         state_dict = {"layer.weight": original}
         
-        result = saver.ensure_contiguous(state_dict)
+        result = saver.prepare_tensors(state_dict)
         
         self.assertTrue(result["layer.weight"].is_contiguous())
     
@@ -61,7 +61,7 @@ class TestEnsureContiguous(unittest.TestCase):
             "noncontiguous": torch.randn(10, 20).t(),
         }
         
-        result = saver.ensure_contiguous(state_dict)
+        result = saver.prepare_tensors(state_dict)
         
         self.assertTrue(result["contiguous"].is_contiguous())
         self.assertTrue(result["noncontiguous"].is_contiguous())
