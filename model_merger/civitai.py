@@ -15,7 +15,7 @@ from typing import Optional, Dict, Any
 import requests
 from pathlib import Path
 
-from .config import get_civitai_api_key, CIVITAI_API_BASE_URL, detect_architecture_from_filename
+from .config import get_civitai_api_key, CIVITAI_API_BASE_URL, detect_architecture_from_filename, DEFAULT_ARCHITECTURE
 from .console import console, print_warning, print_error
 
 
@@ -128,15 +128,21 @@ def detect_architecture_from_civitai(file_hash: str, fallback_filename: Optional
         model_tags = model_data.get('tags', [])
         
         # Check model name for architecture hints
+        # Only accept if it's not the default (meaning a pattern was found)
         arch = detect_architecture_from_filename(model_name)
-        if arch:
+        if arch and arch != DEFAULT_ARCHITECTURE:
             return arch
         
         # Check tags for architecture hints
+        # Only accept if it's not the default
         for tag in model_tags:
             arch = detect_architecture_from_filename(tag)
-            if arch:
+            if arch and arch != DEFAULT_ARCHITECTURE:
                 return arch
+        
+        # If we only found defaults, return the default
+        if model_name or model_tags:
+            return DEFAULT_ARCHITECTURE
     
     # Fall back to filename detection if provided
     if fallback_filename:
