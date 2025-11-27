@@ -6,8 +6,9 @@ This package provides utilities for:
 - Merging multiple models with configurable weights
 - Baking VAEs into merged models
 - Converting legacy checkpoint formats to safetensors (with advanced safety features!)
-- Smart pruning that adapts to file format (SD models, VAEs, LoRAs, embeddings)
+- Smart pruning that adapts to file format (SD models, VAEs, LoRAs, embeddings, upscalers)
 - Verifying converted models match originals (deep tensor comparison)
+- Desktop notifications for long-running operations (Windows)
 - Saving results in safetensors format
 
 Main workflow:
@@ -25,7 +26,7 @@ Or for conversion:
     6. (Optional) Deep verify original vs converted
 """
 
-__version__ = '0.5.0'
+__version__ = '0.5.1'
 
 # Expose main classes and functions at package level
 from .config import (
@@ -86,6 +87,19 @@ from .pruner import (
     get_format_description,
 )
 
+from .notifier import (
+    send_notification,
+    is_available as notifications_available,
+    should_notify,
+    format_time,
+    format_size,
+    notify_conversion_success,
+    notify_conversion_failure,
+    notify_batch_complete,
+    notify_merge_success,
+    notify_merge_failure,
+)
+
 __all__ = [
     # Config
     'detect_architecture_from_filename',
@@ -135,4 +149,16 @@ __all__ = [
     'prune_state_dict',
     'should_skip_pruning',
     'get_format_description',
+    
+    # Notifier
+    'send_notification',
+    'notifications_available',
+    'should_notify',
+    'format_time',
+    'format_size',
+    'notify_conversion_success',
+    'notify_conversion_failure',
+    'notify_batch_complete',
+    'notify_merge_success',
+    'notify_merge_failure',
 ]

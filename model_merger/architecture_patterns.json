@@ -1,0 +1,49 @@
+{
+  "_comment": "Architecture detection patterns for model filenames",
+  "_usage": "Copy this file to ~/.model_merger/architecture_patterns.json to customize",
+  
+  "patterns": {
+    "Pony": [
+      "pony",
+      "pdxl",
+      "ponyxl",
+      "ponydiffusion",
+      "pony-diffusion",
+      "ponyv6"
+    ],
+    "Illustrious": [
+      "illustrious",
+      "ilxl",
+      "illxl",
+      "illus",
+      "ill",
+      "illustrious-xl"
+    ],
+    "SDXL": [
+      "sdxl",
+      "xl"
+    ],
+    "SD1.5": [
+      "sd15",
+      "sd1.5",
+      "v1-5",
+      "v1_5",
+      "sd"
+    ],
+    "SD2.1": [
+      "sd21",
+      "sd2.1",
+      "v2-1",
+      "v2_1"
+    ],
+    "Noobai": [
+      "noobai",
+      "noob",
+      "nai"
+    ]
+  },
+  
+  "default": "SDXL",
+  
+  "_note": "Patterns are case-insensitive. Add your own architectures or patterns as needed."
+}

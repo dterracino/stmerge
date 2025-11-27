@@ -3,28 +3,80 @@ Configuration and constants for the model merger.
 
 This module contains all the magic numbers, patterns, and defaults
 so we don't have random strings scattered everywhere in the codebase.
+
+Architecture patterns are loaded from architecture_patterns.json.
+Users can customize by creating ~/.model_merger/architecture_patterns.json
 """
 
-from typing import List, Set
+import json
+from typing import List, Set, Dict
 from pathlib import Path
 
 # Supported file formats
 SUPPORTED_MODEL_EXTENSIONS = {'.safetensors'}
 SUPPORTED_VAE_EXTENSIONS = {'.safetensors'}
+SUPPORTED_CONVERT_EXTENSIONS = {'.ckpt', '.pt', '.pth', '.bin'}
 
-# Model architecture detection patterns
-# These are searched in filenames to guess the model type
-ARCHITECTURE_PATTERNS = {
-    'Pony': ['pony', 'ponyxl', 'ponydiffusion'],
-    'Illustrious': ['illustrious', 'illus', 'ill'],
-    'SDXL': ['sdxl', 'xl'],
-    'SD1.5': ['sd15', 'sd1.5', 'v1-5'],
-    'SD2.1': ['sd21', 'sd2.1', 'v2-1'],
-    'Noobai': ['noobai', 'noob'],
-}
 
-# Default architecture if we can't detect from filename
-DEFAULT_ARCHITECTURE = 'SDXL'
+def load_architecture_patterns() -> tuple[Dict[str, List[str]], str]:
+    """
+    Load architecture patterns from JSON files.
+    
+    Loads in order of priority:
+    1. Default patterns (shipped with tool)
+    2. User patterns from ~/.model_merger/architecture_patterns.json (if exists)
+    
+    User patterns override/extend default patterns.
+    
+    Returns:
+        Tuple of (patterns_dict, default_architecture)
+    """
+    # Load default patterns from package
+    default_file = Path(__file__).parent / 'architecture_patterns.json'
+    
+    try:
+        with open(default_file, 'r', encoding='utf-8') as f:
+            default_data = json.load(f)
+            patterns = default_data.get('patterns', {})
+            default_arch = default_data.get('default', 'SDXL')
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        # Fallback to hardcoded if JSON is missing/corrupt
+        patterns = {
+            'Pony': ['pony', 'ponyxl', 'ponydiffusion'],
+            'Illustrious': ['illustrious', 'illus', 'ill'],
+            'SDXL': ['sdxl', 'xl'],
+            'SD1.5': ['sd15', 'sd1.5', 'v1-5'],
+            'SD2.1': ['sd21', 'sd2.1', 'v2-1'],
+            'Noobai': ['noobai', 'noob'],
+        }
+        default_arch = 'SDXL'
+    
+    # Check for user overrides
+    user_file = Path.home() / '.model_merger' / 'architecture_patterns.json'
+    
+    if user_file.exists():
+        try:
+            with open(user_file, 'r', encoding='utf-8') as f:
+                user_data = json.load(f)
+                user_patterns = user_data.get('patterns', {})
+                
+                # Merge user patterns (user patterns override defaults)
+                for arch, pattern_list in user_patterns.items():
+                    patterns[arch] = pattern_list
+                
+                # Use user's default if specified
+                if 'default' in user_data:
+                    default_arch = user_data['default']
+                    
+        except (json.JSONDecodeError, IOError):
+            # If user file is corrupt, just use defaults
+            pass
+    
+    return patterns, default_arch
+
+
+# Load architecture patterns from JSON
+ARCHITECTURE_PATTERNS, DEFAULT_ARCHITECTURE = load_architecture_patterns()
 
 # Keys that should be pruned (removed) from models
 # These are training artifacts and other cruft we don't need

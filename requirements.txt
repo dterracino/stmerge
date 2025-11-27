@@ -6,6 +6,9 @@ numpy>=1.24.0
 packaging>=21.0  # Required by safetensors
 rich>=13.0.0     # Beautiful terminal formatting
 
+# Notifications (Windows only, optional)
+win10toast>=0.9; platform_system=="Windows"  # Toast notifications for long operations
+
 # Optional but recommended
 # Uncomment if you want to use CUDA acceleration
 # torch>=2.0.0+cu118

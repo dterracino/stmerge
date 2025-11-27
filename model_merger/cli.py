@@ -26,6 +26,66 @@ from .console import (
 )
 
 
+def check_cuda_availability(requested_device: str) -> str:
+    """
+    Check if CUDA is available when requested, warn if not.
+    
+    Args:
+        requested_device: The device the user requested ('cuda' or 'cpu')
+        
+    Returns:
+        The actual device to use (may fall back to 'cpu' if CUDA unavailable)
+    """
+    if requested_device != 'cuda':
+        return requested_device
+    
+    import torch
+    if not torch.cuda.is_available():
+        console.print()
+        console.print("[yellow]⚠ Warning: CUDA requested but not available![/yellow]")
+        console.print("[yellow]  Possible reasons:[/yellow]")
+        console.print("[yellow]  • PyTorch CPU-only version installed[/yellow]")
+        console.print("[yellow]  • No NVIDIA GPU detected[/yellow]")
+        console.print("[yellow]  • CUDA drivers not installed[/yellow]")
+        console.print()
+        console.print("[cyan]To enable GPU acceleration:[/cyan]")
+        console.print("[dim]  1. Check CUDA version: nvidia-smi[/dim]")
+        console.print("[dim]  2. Install CUDA PyTorch (match your CUDA version):[/dim]")
+        console.print("[dim]     pip install torch --index-url https://download.pytorch.org/whl/cu118  # CUDA 11.8[/dim]")
+        console.print("[dim]     pip install torch --index-url https://download.pytorch.org/whl/cu121  # CUDA 12.1[/dim]")
+        console.print("[dim]     pip install torch --index-url https://download.pytorch.org/whl/cu128  # CUDA 12.8[/dim]")
+        console.print("[dim]     pip install torch --index-url https://download.pytorch.org/whl/cu130  # CUDA 13.0[/dim]")
+        console.print()
+        console.print("[yellow]Falling back to CPU...[/yellow]")
+        console.print()
+        return 'cpu'
+    
+    return 'cuda'
+
+
+def print_device_info(selected_device: str):
+    """
+    Display device information (CUDA availability and selected device).
+    
+    Args:
+        selected_device: The device that will be used ('cuda' or 'cpu')
+    """
+    import torch
+    
+    cuda_available = torch.cuda.is_available()
+    
+    console.print()
+    console.print("[cyan]Device Information:[/cyan]")
+    console.print(f"  CUDA Available: {'[green]Yes[/green]' if cuda_available else '[yellow]No[/yellow]'}")
+    
+    if cuda_available:
+        cuda_device_name = torch.cuda.get_device_name(0)
+        console.print(f"  GPU: [dim]{cuda_device_name}[/dim]")
+    
+    console.print(f"  Selected Device: [bold]{'[green]CUDA[/green]' if selected_device == 'cuda' else '[blue]CPU[/blue]'}[/bold]")
+    console.print()
+
+
 def cmd_scan(args):
     """
     Handle the 'scan' subcommand.
@@ -80,6 +140,8 @@ def cmd_scan(args):
 
 def cmd_convert(args) -> int:
     """Handle the convert subcommand."""
+    from . import notifier as notifier_module
+    
     input_path = Path(args.input)
     
     # Print header
@@ -89,6 +151,31 @@ def cmd_convert(args) -> int:
     if not input_path.exists():
         print_error(f"Input file not found: {input_path}")
         return 1
+    
+    # Validate file extension
+    if input_path.suffix.lower() not in config.SUPPORTED_CONVERT_EXTENSIONS:
+        if not args.force:
+            console.print()
+            console.print(f"[yellow]⚠ Warning: Unrecognized file extension: {input_path.suffix}[/yellow]")
+            console.print(f"[yellow]  Supported formats: {', '.join(sorted(config.SUPPORTED_CONVERT_EXTENSIONS))}[/yellow]")
+            console.print()
+            console.print("[cyan]This might be:[/cyan]")
+            console.print("  [dim]• A typo in the filename[/dim]")
+            console.print("  [dim]• A renamed file with wrong extension[/dim]")
+            console.print("  [dim]• An unusual format that might work anyway[/dim]")
+            console.print()
+            
+            response = input("Attempt conversion anyway? [y/N]: ")
+            if response.lower() != 'y':
+                console.print("[yellow]Conversion cancelled.[/yellow]")
+                return 1
+            
+            console.print("[dim]Proceeding with conversion attempt...[/dim]")
+            console.print()
+        else:
+            # --force flag specified, just show brief warning
+            console.print(f"[yellow]Note: Unrecognized extension {input_path.suffix} (--force specified)[/yellow]")
+            console.print()
     
     # Determine output path
     output_path = Path(args.output) if args.output else None
@@ -114,10 +201,19 @@ def cmd_convert(args) -> int:
             output_path = input_path.with_suffix('.safetensors')
         
         # Get file size
-        size_mb = output_path.stat().st_size / (1024 * 1024)
+        size_bytes = output_path.stat().st_size
+        size_mb = size_bytes / (1024 * 1024)
         
         # Print completion message
         print_completion(str(output_path), size_mb, output_hash, elapsed_seconds)
+        
+        # Send notification if requested and operation took long enough
+        if notifier_module.should_notify(args.notify, elapsed_seconds):
+            notifier_module.notify_conversion_success(
+                output_path.name,
+                size_bytes,
+                elapsed_seconds
+            )
         
         # Helpful tip
         console.print()
@@ -125,7 +221,13 @@ def cmd_convert(args) -> int:
         print_info(f"Consider deleting the original: [dim]{input_path}[/dim]")
         
     except Exception as e:
-        print_error(f"Conversion failed: {e}")
+        error_msg = str(e)
+        print_error(f"Conversion failed: {error_msg}")
+        
+        # Send failure notification if requested
+        if args.notify and notifier_module.is_available():
+            notifier_module.notify_conversion_failure(input_path.name, error_msg)
+        
         return 1
     
     return 0
@@ -176,6 +278,9 @@ def cmd_merge(args):
     
     Loads a manifest and performs the merge operation.
     """
+    from . import notifier as notifier_module
+    from . import __version__
+    
     manifest_path = Path(args.manifest)
     
     if not manifest_path.exists():
@@ -183,7 +288,7 @@ def cmd_merge(args):
         return 1
     
     # Print header
-    print_header("🎨 Model Merger v0.1.0 🎨")
+    print_header(f"🎨 Model Merger v{__version__} 🎨")
     
     # Load manifest
     try:
@@ -199,6 +304,12 @@ def cmd_merge(args):
         manifest.device = args.device
     if args.no_prune:
         manifest.prune = False  # CLI says don't prune, update manifest
+    
+    # Check CUDA availability and warn if needed
+    manifest.device = check_cuda_availability(manifest.device)
+    
+    # Display device information
+    print_device_info(manifest.device)
     
     # Display manifest summary
     print_manifest_summary(manifest)
@@ -234,7 +345,13 @@ def cmd_merge(args):
             validate_compatibility=True
         )
     except Exception as e:
-        print_error(f"Error during merge: {e}")
+        error_msg = str(e)
+        print_error(f"Error during merge: {error_msg}")
+        
+        # Send failure notification if requested
+        if args.notify and notifier_module.is_available():
+            notifier_module.notify_merge_failure(error_msg)
+        
         return 1
     
     # Step 2: Bake VAE if specified
@@ -247,7 +364,13 @@ def cmd_merge(args):
                 device=manifest.device
             )
         except Exception as e:
-            print_error(f"Error baking VAE: {e}")
+            error_msg = str(e)
+            print_error(f"Error baking VAE: {error_msg}")
+            
+            # Send failure notification if requested
+            if args.notify and notifier_module.is_available():
+                notifier_module.notify_merge_failure(f"VAE baking failed: {error_msg}")
+            
             return 1
     
     # Step 3: Handle precision conversion
@@ -298,7 +421,8 @@ def cmd_merge(args):
         )
         
         # Get file size
-        size_mb = output_path.stat().st_size / (1024 * 1024)
+        size_bytes = output_path.stat().st_size
+        size_mb = size_bytes / (1024 * 1024)
         
         # Update the OutputEntry with hash and precision info
         manifest.output.sha256 = output_hash
@@ -316,8 +440,22 @@ def cmd_merge(args):
         # Print beautiful completion message with timing
         print_completion(str(output_path), size_mb, output_hash, elapsed_seconds)
         
+        # Send notification if requested and operation took long enough
+        if notifier_module.should_notify(args.notify, elapsed_seconds):
+            notifier_module.notify_merge_success(
+                output_path.name,
+                size_bytes,
+                elapsed_seconds
+            )
+        
     except Exception as e:
-        print_error(f"Error saving model: {e}")
+        error_msg = str(e)
+        print_error(f"Error saving model: {error_msg}")
+        
+        # Send failure notification if requested
+        if args.notify and notifier_module.is_available():
+            notifier_module.notify_merge_failure(error_msg)
+        
         return 1
     
     return 0
@@ -330,7 +468,7 @@ def main():
     Sets up argument parsing with subcommands and dispatches to handlers.
     """
     parser = argparse.ArgumentParser(
-        description='Model Merger - Merge multiple Stable Diffusion models',
+        description='Model Merger ' + __version__ + ' - Merge multiple Stable Diffusion models',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -425,6 +563,11 @@ Examples:
         action='store_true',
         help='Don\'t prune unnecessary keys (overrides manifest setting)'
     )
+    merge_parser.add_argument(
+        '--notify',
+        action='store_true',
+        help='Send desktop notification when complete (long operations only)'
+    )
     
     # Convert subcommand
     convert_parser = subparsers.add_parser(
@@ -456,6 +599,16 @@ Examples:
         '--overwrite',
         action='store_true',
         help='Overwrite output file if it exists'
+    )
+    convert_parser.add_argument(
+        '--notify',
+        action='store_true',
+        help='Send desktop notification when complete (long operations only)'
+    )
+    convert_parser.add_argument(
+        '--force',
+        action='store_true',
+        help='Skip confirmation prompts (for unrecognized file extensions)'
     )
     
     # Verify subcommand

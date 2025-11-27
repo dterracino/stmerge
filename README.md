@@ -1,6 +1,6 @@
-# Model Merger v0.5.0
+# Model Merger v0.5.1
 
-A clean, simple tool for merging multiple Stable Diffusion models with optional VAE baking, plus robust conversion of legacy checkpoint formats with advanced safety features, smart format detection, and deep verification.
+A clean, simple tool for merging multiple Stable Diffusion models with optional VAE baking, plus robust conversion of legacy checkpoint formats with advanced safety features, smart format detection, deep verification, and desktop notifications.
 
 ## Features
 
@@ -17,6 +17,7 @@ A clean, simple tool for merging multiple Stable Diffusion models with optional 
   - Checks key sets match
   - Validates tensor shapes
   - Compares numerical values with floating-point tolerance
+- 🔔 **Desktop notifications** - Get notified when long operations complete (Windows)
 - 📝 **Manifest workflow** - Scan → Review → Merge with JSON configs
 - 🔒 **Security first** - Safe loading of legacy formats (no code execution!)
 - 🧹 **Auto-pruning** - Strips training artifacts to keep files lean
@@ -37,9 +38,45 @@ pip install -r requirements.txt
 - PyTorch 2.0+
 - safetensors 0.4.0+
 - rich 13.0+ (for beautiful terminal output)
-- tqdm 4.65+ (for progress bars)
 - numpy 1.24+
 - packaging 21.0+ (dependency of safetensors)
+- win10toast 0.9+ (optional, Windows only - for desktop notifications)
+
+### GPU Acceleration (Optional)
+
+The default installation uses **CPU-only PyTorch**. For GPU acceleration with CUDA:
+
+```bash
+# First, check your CUDA version
+nvidia-smi
+
+# Then install PyTorch with CUDA support:
+# For CUDA 11.8
+pip install torch --index-url https://download.pytorch.org/whl/cu118
+
+# For CUDA 12.1
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+# For CUDA 12.4
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+# For CUDA 12.8
+pip install torch --index-url https://download.pytorch.org/whl/cu128
+
+# For CUDA 13.0 (latest)
+pip install torch --index-url https://download.pytorch.org/whl/cu130
+```
+
+**Already have PyTorch installed?**
+
+```bash
+# Force reinstall with CUDA support (replaces existing installation)
+pip install torch --force-reinstall --index-url https://download.pytorch.org/whl/cu130
+```
+
+Once installed, use `--device cuda` flag for merging operations. The tool will automatically detect if CUDA is unavailable and fall back to CPU with a helpful warning.
+
+**Note:** GPU acceleration is most beneficial for merging large models. Conversions are I/O-bound and won't benefit much from GPU.
 
 ## Quick Start
 
@@ -53,12 +90,23 @@ python run.py convert old_model.ckpt
 
 # With options
 python run.py convert model.pt --output new_name.safetensors --no-prune --overwrite
+
+# Get notified when long conversions finish (Windows)
+python run.py convert huge_model.ckpt --notify
+
+# Skip confirmation for unrecognized extensions (automation)
+python run.py convert unusual_file.model --force
 ```
+
+**Supported input formats:** `.ckpt`, `.pt`, `.pth`, `.bin`  
+The tool will warn and confirm before converting files with other extensions.
 
 **What makes our converter special:**
 
 - ✅ **Smart Format Detection** - Auto-detects SD models, VAEs, LoRAs, embeddings, and upscalers
+- ✅ **Extension Validation** - Warns about unrecognized file types (v0.5.1!)
 - ✅ **Adaptive Pruning** - Different strategies for different file types (v0.5.0!)
+- ✅ **Desktop Notifications** - Toast notifications for operations >30 seconds (v0.5.1!)
 - ✅ **DataParallel Support** - Automatically removes `module.` prefixes from multi-GPU trained models
 - ✅ **Shared Tensor Detection** - Clones tensors to prevent memory-sharing errors
 - ✅ **Output Verification** - Validates the converted file for quality
@@ -95,8 +143,9 @@ The verifier uses `torch.allclose()` with tolerances (rtol=1e-5, atol=1e-8) to a
 ### The Simple Merge Flow
 
 ```bash
-# 1. Scan a folder of models
-python run.py scan ./my_models --vae my_vae.safetensors
+# 1. Scan a folder of models (VAE is optional)
+python run.py scan ./my_models
+# Or with VAE: python run.py scan ./my_models --vae my_vae.safetensors
 
 # 2. Edit the generated manifest file (optional)
 # Review weights, architecture tags, output filename, etc.
@@ -114,12 +163,16 @@ Done! Your merged model will be saved in the location specified in the manifest.
 The `scan` command finds all `.safetensors` files in a folder and generates a merge manifest:
 
 ```bash
+# Without VAE (just merge models)
+python run.py scan ./models --output my_merge.json
+
+# With VAE (bake VAE into merged model)
 python run.py scan ./models --vae vae.safetensors --output my_merge.json
 ```
 
 **Options:**
 
-- `--vae PATH` - VAE file to bake into the merged model
+- `--vae PATH` - (Optional) VAE file to bake into the merged model
 - `--output PATH` - Where to save the manifest (default: `folder/merge_manifest.json`)
 - `--compute-hashes` - Calculate SHA-256 hashes for input models/VAE (slow but useful)
 - `--no-equal-weights` - Don't auto-calculate equal weights (you'll edit them manually)
@@ -334,29 +387,80 @@ Pruning removes ~200-400MB of training artifacts. Always recommended!
 
 ```text
 model_merger/
-├── __init__.py       # Package exports
-├── config.py         # Constants, patterns, defaults
-├── loader.py         # Load models/VAEs, compute hashes
-├── manifest.py       # Scan folders, generate/validate manifests
-├── merger.py         # Core accumulator merge logic
-├── vae.py            # VAE baking
-├── saver.py          # Save merged models
-├── converter.py      # Convert legacy formats to safetensors
-├── verifier.py       # Deep verification of conversions
-├── pruner.py         # Smart format detection and pruning
-├── console.py        # Rich UI formatting and progress bars
-└── cli.py            # Command-line interface
+├── __init__.py                    # Package exports
+├── config.py                      # Constants, patterns, defaults
+├── architecture_patterns.json     # Default architecture detection patterns
+├── loader.py                      # Load models/VAEs, compute hashes
+├── manifest.py                    # Scan folders, generate/validate manifests
+├── merger.py                      # Core accumulator merge logic
+├── vae.py                         # VAE baking
+├── saver.py                       # Save merged models
+├── converter.py                   # Convert legacy formats to safetensors
+├── verifier.py                    # Deep verification of conversions
+├── pruner.py                      # Smart format detection and pruning
+├── notifier.py                    # Desktop notifications for long operations
+├── console.py                     # Rich UI formatting and progress bars
+└── cli.py                         # Command-line interface
 
-run.py                # Entry point
+run.py                              # Entry point
 ```
 
 Each module has a single, clear responsibility. Easy to test, easy to extend!
 
+## Customization
+
+### Architecture Pattern Detection
+
+The tool detects model architectures (Pony, SDXL, Illustrious, etc.) from filenames. You can customize these patterns without editing code!
+
+**Create a custom patterns file:**
+
+```bash
+# Create config directory
+mkdir -p ~/.model_merger
+
+# Copy default patterns
+cp model_merger/architecture_patterns.json ~/.model_merger/
+
+# Edit to add your patterns
+nano ~/.model_merger/architecture_patterns.json
+```
+
+**Example custom patterns:**
+
+```json
+{
+  "patterns": {
+    "Pony": ["pony", "ponyxl", "ponydiffusion", "pony-diffusion", "ponyv6"],
+    "MyCustomArch": ["mycustom", "custom-model", "cm"],
+    "Flux": ["flux", "flux-dev", "flux-schnell"]
+  },
+  "default": "SDXL"
+}
+```
+
+**How it works:**
+
+- Default patterns ship with the tool
+- User patterns in `~/.model_merger/architecture_patterns.json` override defaults
+- Patterns are case-insensitive
+- First match wins when scanning filenames
+- Great for custom/niche architectures or unusual naming conventions
+
+This means you can handle your weird file naming conventions without needing code changes or submitting PRs! 🎉
+
 ## Roadmap
+
+**v0.5.1 - ✅ Complete!**
+
+- [x] Desktop notifications for long operations (Windows toast)
+- [x] --notify flag for convert and merge commands
+- [x] Graceful cross-platform degradation
+- [x] Smart notification thresholds (>30 seconds)
 
 **v0.5.0 - ✅ Complete!**
 
-- [x] Smart format detection (SD models, VAEs, LoRAs, embeddings)
+- [x] Smart format detection (SD models, VAEs, LoRAs, embeddings, upscalers)
 - [x] Adaptive pruning strategies per format type
 - [x] Dedicated pruner module for clean separation of concerns
 - [x] Automatic detection and handling of standalone files
@@ -415,11 +519,34 @@ Each module has a single, clear responsibility. Easy to test, easy to extend!
 
 - Use `--overwrite` flag or change output filename in manifest
 
+### "CUDA requested but not available"
+
+If you see this warning when using `--device cuda`:
+
+1. **Check if you have an NVIDIA GPU:** Run `nvidia-smi` in your terminal
+2. **Install CUDA-enabled PyTorch:** The default `pip install torch` only installs CPU version
+
+   ```bash
+   # Check your CUDA version first
+   nvidia-smi
+   
+   # Install matching PyTorch version
+   pip install torch --index-url https://download.pytorch.org/whl/cu118  # For CUDA 11.8
+   pip install torch --index-url https://download.pytorch.org/whl/cu121  # For CUDA 12.1
+   pip install torch --index-url https://download.pytorch.org/whl/cu124  # For CUDA 12.4
+   pip install torch --index-url https://download.pytorch.org/whl/cu128  # For CUDA 12.8
+   pip install torch --index-url https://download.pytorch.org/whl/cu130  # For CUDA 13.0
+   ```
+
+3. **Verify CUDA works:** Run `python -c "import torch; print(torch.cuda.is_available())"`
+
+The tool will automatically fall back to CPU if CUDA is unavailable.
+
 ### "Safe loading failed" / "Cannot load [file] safely"
 
 This happens when a checkpoint file contains custom Python code or uses old pickle formats that our safety checks (`weights_only=True`) reject. This is INTENTIONAL - the file could contain malicious code!
 
-**If you created this file yourself** and know it's safe, you can convert it manually:
+If you created this file yourself and know it's safe, you can convert it manually:
 
 ```python
 #!/usr/bin/env python3
