@@ -83,9 +83,10 @@ def merge_models(
                 accumulator[key] = accumulator[key].to(torch.float32) * first_entry.weight
             progress.advance(task)
     
-    # Store reference model for compatibility checking
-    reference_dict = {k: v for k, v in accumulator.items()}
-    
+    # Store only shapes for compatibility checking (memory efficient!)
+    reference_shapes = {k: v.shape for k, v in accumulator.items()}
+    reference_keys = set(accumulator.keys())
+
     # Process remaining models
     for idx, entry in enumerate(model_entries[1:], start=2):
         model_path = Path(entry.path)
@@ -102,12 +103,13 @@ def merge_models(
         # Validate compatibility if requested
         if validate_compatibility:
             compatible, error_msg = validate_models_compatible(
-                reference_dict,
+                reference_shapes,  # Changed from reference_dict
+                reference_keys,    # Added
                 current_model,
                 Path(first_entry.path).name,
                 model_path.name
             )
-            if not compatible:
+        if not compatible:
                 raise ValueError(f"Models are incompatible: {error_msg}")
         
         # Accumulate this model
@@ -158,9 +160,10 @@ def merge_models(
             torch.cuda.empty_cache()
             torch.cuda.synchronize()  # Wait for all CUDA ops to finish
     
-    # Clean up reference dict
-    del reference_dict
-    
+    # Clean up reference data
+    del reference_shapes
+    del reference_keys
+
     print_success(f"Merge complete! Combined {len(model_entries)} models.")
     console.print(f"  [dim]Total tensors in result: {len(accumulator)}[/dim]\n")
     
