@@ -84,6 +84,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 
+- **Usage Guide Generation (.usage.json)** (v0.6.0)
+  - Automatic generation of `.usage.json` files for merged models
+  - Aggregates prompting recommendations from source models
+  - Optional LLM-powered extraction from CivitAI pages (if API key configured)
+  - Manual input fallback for usage information
+  
+- **CUDA Memory Optimization** (v0.6.0)
+  - Fix memory leak in accumulator (use in-place operations with .add_())
+  - Optimize tensor preparation (only clone shared tensors, not all 2515)
+  
+- **LoRA Merging Support** (v0.8.0+)
+  - Merge LoRAs into models (bake LoRA weights permanently)
+  - Support for applying multiple LoRAs with different strengths
+  
+- Glob pattern support for scan command (e.g., `scan ./models/*.safetensors`)
+- Multi-GPU device selection (`--device cuda:0`, `--device cuda:1`)
+- Replace win10toast with better notification library (winotify or plyer)
 - Batch conversion (convert entire folders at once)
 - Block-weighted merging (different weights per layer)
 - Model info command (inspect models without merging)
