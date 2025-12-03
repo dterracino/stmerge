@@ -9,6 +9,7 @@ Supermerger and similar tools make you merge models in "tournament style" - pair
 **Key Features:**
 
 - ✅ **Memory Efficient** - Merge 8+ models without massive RAM requirements
+- ✅ **Shape-Only Validation** - Ultra-fast compatibility checks without loading full models  
 - ✅ **True Weighted Blending** - All models contribute equally (no tournament dilution!)
 - ✅ **Smart Conversion** - Legacy `.ckpt`/`.pt` to safetensors with adaptive pruning
 - ✅ **Deep Verification** - Tensor-by-tensor comparison of conversions

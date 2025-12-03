@@ -82,6 +82,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 20 unit tests for `hasher.py` module with multiple algorithm support
 - All tests passing with proper mocking and isolation
 
+### Fixed
+
+- **Memory Optimization in Model Merging**
+  - Implemented shape-only validation to reduce memory usage during compatibility checks
+  - Fixed memory leak in accumulator using in-place operations with `.add_()`
+  - Optimized validation to store only tensor shapes instead of full reference model
+  - Enhanced garbage collection and CUDA cache management during merging
+  - Reduced peak memory usage during multi-model merging operations
+
 ### Planned
 
 - **Usage Guide Generation (.usage.json)** (v0.6.0)
@@ -89,10 +98,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Aggregates prompting recommendations from source models
   - Optional LLM-powered extraction from CivitAI pages (if API key configured)
   - Manual input fallback for usage information
-  
-- **CUDA Memory Optimization** (v0.6.0)
-  - Fix memory leak in accumulator (use in-place operations with .add_())
-  - Optimize tensor preparation (only clone shared tensors, not all 2515)
   
 - **LoRA Merging Support** (v0.8.0+)
   - Merge LoRAs into models (bake LoRA weights permanently)

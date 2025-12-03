@@ -15,6 +15,9 @@ This is a **Stable Diffusion model merging tool** that combines multiple `.safet
 - Use the **accumulator pattern** - only 2 models in RAM at once
 - Never load all models simultaneously
 - Always clean up after processing each model
+- **Shape-only validation** - store only tensor shapes for compatibility checks
+- **In-place accumulation** - use `.add_()` to prevent intermediate tensor creation
+- Aggressive memory cleanup with immediate garbage collection
 
 ### 3. **Security First**
 - Use `safe_torch_load()` from `loader.py` for ALL pickle-based formats
@@ -62,10 +65,12 @@ assert input_path.exists()  # Silent failure
 - Handle corrupted files gracefully (skip or warn, don't crash)
 
 ### `merger.py` - Core Merge Logic
+- **Shape-only validation** - store only `reference_shapes` dict for compatibility checks
+- **In-place accumulation** - use `accumulator[key].add_(weighted_tensor)` pattern
 - Validate tensor shapes BEFORE merging (save RAM on failures)
-- Accumulator pattern: `result = model1 * w1; result += model2 * w2; ...`
 - Skip keys in `config.SKIP_MERGE_KEYS` (they cause issues)
 - Support both CPU and CUDA devices
+- Aggressive memory cleanup after each model
 
 ### `manifest.py` - Manifest Generation/Validation
 - Use dataclasses with `@dataclass` decorator for manifest structures
