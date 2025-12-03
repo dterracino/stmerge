@@ -93,7 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 
-- **Usage Guide Generation (.usage.json)** (v0.6.0)
+- **Usage Guide Generation (.usage.json)** (v0.6.0) - *See [USAGE_GUIDE.md](model_merger/USAGE_GUIDE.md)*
   - Automatic generation of `.usage.json` files for merged models
   - Aggregates prompting recommendations from source models
   - Optional LLM-powered extraction from CivitAI pages (if API key configured)
