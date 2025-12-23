@@ -74,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test failures in `test_civitai.py` for tag detection and fallback behavior
 - Import errors in test files (requests module not imported)
 - Mock patch paths in cache tests (corrected to `console.print_warning`)
+- Memory leak in accumulator using in-place operations with `.add_()` (shape-only validation)
+- Peak memory usage during multi-model merging via optimized tensor validation
 
 ### Testing
 
@@ -81,15 +83,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 21 unit tests for `cache.py` module covering load/save/query/staleness
 - 20 unit tests for `hasher.py` module with multiple algorithm support
 - All tests passing with proper mocking and isolation
-
-### Fixed
-
-- **Memory Optimization in Model Merging**
-  - Implemented shape-only validation to reduce memory usage during compatibility checks
-  - Fixed memory leak in accumulator using in-place operations with `.add_()`
-  - Optimized validation to store only tensor shapes instead of full reference model
-  - Enhanced garbage collection and CUDA cache management during merging
-  - Reduced peak memory usage during multi-model merging operations
 
 ### Planned
 

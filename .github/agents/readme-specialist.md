@@ -32,10 +32,10 @@ This project uses a **multi-file documentation structure** to keep information o
 
 ### Detailed Documentation (`/docs` folder)
 
-- **`docs/installation.md`** - Setup, requirements, dependencies, GPU acceleration
-- **`docs/usage.md`** - Complete command reference, workflows, examples
-- **`docs/customization.md`** - Advanced configuration, architecture patterns, manifest editing
-- **`docs/troubleshooting.md`** - Common issues, error messages, solutions
+- **`docs/Installation.md`** - Setup, requirements, dependencies, GPU acceleration
+- **`docs/Usage.md`** - Complete command reference, workflows, examples
+- **`docs/Customization.md`** - Advanced configuration, architecture patterns, manifest editing
+- **`docs/Troubleshooting.md`** - Common issues, error messages, solutions
 - **`docs/FAQ.md`** - Frequently asked questions with quick answers
 
 ### Content Guidelines by File
@@ -120,9 +120,9 @@ Information should flow from simple to complex:
 
 1. **README.md** - Simplest, fastest path to success
 2. **docs/FAQ.md** - Quick answers to common questions
-3. **docs/usage.md** - Complete details for all scenarios
-4. **docs/customization.md** - Advanced techniques for power users
-5. **docs/troubleshooting.md** - Deep dive when things go wrong
+3. **docs/Usage.md** - Complete details for all scenarios
+4. **docs/Customization.md** - Advanced techniques for power users
+5. **docs/Troubleshooting.md** - Deep dive when things go wrong
 
 ### Link, Don't Duplicate
 
@@ -181,10 +181,10 @@ The README should be scannable in 2-3 minutes. If a section becomes longer than 
 1. Read README.md (entry point, quick start)
 2. Read CHANGELOG.md (version history)
 3. Read ROADMAP.md (planned features)
-4. Read docs/installation.md (setup instructions)
-5. Read docs/usage.md (command reference)
-6. Read docs/customization.md (advanced config)
-7. Read docs/troubleshooting.md (common issues)
+4. Read docs/Installation.md (setup instructions)
+5. Read docs/Usage.md (command reference)
+6. Read docs/Customization.md (advanced config)
+7. Read docs/Troubleshooting.md (common issues)
 8. Read docs/FAQ.md (frequently asked questions)
 9. Read cli.py (what commands are available?)
 10. Read config.py (what are the defaults?)
@@ -207,38 +207,38 @@ Use this decision tree:
 **New feature added?**
 - Add to CHANGELOG.md (what changed)
 - Add to README.md features list (brief mention)
-- Add to docs/usage.md (detailed usage)
-- Add to docs/customization.md (if configurable)
+- Add to docs/Usage.md (detailed usage)
+- Add to docs/Customization.md (if configurable)
 - Remove from ROADMAP.md (if it was planned)
 
 **CLI command changed?**
-- Update docs/usage.md (command reference)
+- Update docs/Usage.md (command reference)
 - Update README.md Quick Start (if affected)
 - Add to CHANGELOG.md (breaking change?)
 
 **Installation process changed?**
-- Update docs/installation.md (primary location)
+- Update docs/Installation.md (primary location)
 - Update README.md if quick install command changed
 
 **Bug fixed?**
 - Add to CHANGELOG.md (under Fixed)
-- Add to docs/troubleshooting.md (if users will encounter it)
+- Add to docs/Troubleshooting.md (if users will encounter it)
 
 **Future feature planned?**
 - Add to ROADMAP.md with design notes
 
 **Common issue discovered?**
-- Add to docs/troubleshooting.md (if error-focused)
+- Add to docs/Troubleshooting.md (if error-focused)
 - Add to docs/FAQ.md (if general question)
-- Consider adding example to docs/usage.md if workflow-related
+- Consider adding example to docs/Usage.md if workflow-related
 
 **Common question asked?**
 - Add to docs/FAQ.md with quick answer
 - Link to detailed docs if needed
 
 **Configuration option added?**
-- Add to docs/customization.md (detailed)
-- Mention in docs/usage.md (if commonly used)
+- Add to docs/Customization.md (detailed)
+- Mention in docs/Usage.md (if commonly used)
 
 ### 3. Maintain Consistency Across Files
 
@@ -252,8 +252,8 @@ When linking between documentation files:
 
 **Don't duplicate content unnecessarily:**
 
-- README.md: Brief example, link to docs/usage.md
-- docs/usage.md: Complete explanation with all options
+- README.md: Brief example, link to docs/Usage.md
+- docs/Usage.md: Complete explanation with all options
 
 **Keep tone consistent:**
 
@@ -291,28 +291,28 @@ When linking between documentation files:
 - Implementation notes
 - Status indicators (PLANNED, IN PROGRESS, COMPLETED)
 
-**docs/installation.md should cover:**
+**docs/Installation.md should cover:**
 - Prerequisites
 - Basic installation steps
 - Optional dependencies (GPU, notifications)
 - Platform-specific instructions
 - Verification steps
 
-**docs/usage.md should document:**
+**docs/Usage.md should document:**
 - All CLI commands with full syntax
 - All command flags and options
 - Complete workflows (scan → merge → verify)
 - Advanced patterns
 - Input/output specifications
 
-**docs/customization.md should explain:**
+**docs/Customization.md should explain:**
 - Configuration file formats (JSON schemas)
 - How to customize architecture detection
 - Manifest file editing
 - Advanced merge techniques
 - Extension points
 
-**docs/troubleshooting.md should provide:**
+**docs/Troubleshooting.md should provide:**
 - Common error messages with solutions
 - Diagnostic procedures
 - Known issues with workarounds
@@ -397,7 +397,7 @@ python script.py
 ```markdown
 [Link text](https://example.com)
 [Link with title](https://example.com "Hover text")
-[Relative link to docs](../../docs/installation.md)
+[Relative link to docs](../../docs/Installation.md)
 ```
 
 ## Common Markdown Lint Errors to Avoid

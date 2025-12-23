@@ -211,6 +211,7 @@ stats = {
 **Use case:** Fail fast if trying to merge incompatible models
 
 **Implementation:** ✅ Completed - Uses shape-only validation with efficient memory usage
+
 - Stores only tensor shapes instead of full reference model
 - Validates key compatibility and tensor shape matching
 - Significantly reduced memory usage during validation
