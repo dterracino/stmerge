@@ -151,62 +151,54 @@ def load_vae(
 
 
 def validate_models_compatible(
-    model_a_dict: Dict[str, torch.Tensor],
-    model_b_dict: Dict[str, torch.Tensor],
-    model_a_name: str = "Model A",
-    model_b_name: str = "Model B"
+    reference_shapes: Dict[str, torch.Size],
+    reference_keys: set,
+    current_model: Dict[str, torch.Tensor],
+    reference_name: str,
+    current_name: str
 ) -> Tuple[bool, Optional[str]]:
     """
-    Check if two models are compatible for merging.
-    
-    Models are compatible if:
-    1. They have the same keys (or at least overlapping keys)
-    2. Corresponding tensors have the same shapes
-    
-    This prevents us from trying to merge a Pony model with an Illustrious
-    model, which would explode spectacularly.
+    Validate that two models have compatible structures for merging.
     
     Args:
-        model_a_dict: First model's state dict
-        model_b_dict: Second model's state dict
-        model_a_name: Name for error messages
-        model_b_name: Name for error messages
+        reference_shapes: Tensor shapes from reference model
+        reference_keys: Set of keys from reference model
+        current_model: Current model state dict to validate
+        reference_name: Name of reference model (for error messages)
+        current_name: Name of current model (for error messages)
         
     Returns:
-        Tuple of (is_compatible, error_message)
-        - is_compatible: True if models can be merged
-        - error_message: Description of incompatibility, or None if compatible
+        (is_compatible, error_message) tuple
     """
-    # Get keys that exist in both models
-    keys_a = set(model_a_dict.keys())
-    keys_b = set(model_b_dict.keys())
-    common_keys = keys_a & keys_b
+    current_keys = set(current_model.keys())
     
-    # Check if there's significant overlap
-    if len(common_keys) < 0.8 * min(len(keys_a), len(keys_b)):
-        missing_in_b = len(keys_a - keys_b)
-        missing_in_a = len(keys_b - keys_a)
-        return False, (
-            f"Models have insufficient key overlap. "
-            f"{model_a_name} has {missing_in_b} keys not in {model_b_name}. "
-            f"{model_b_name} has {missing_in_a} keys not in {model_a_name}. "
-            f"These models likely have different architectures."
-        )
-    
-    # Check shapes for common keys
-    for key in common_keys:
-        if config.should_skip_merge_key(key):
-            continue
-            
-        shape_a = model_a_dict[key].shape
-        shape_b = model_b_dict[key].shape
+    # Check if key sets match
+    if reference_keys != current_keys:
+        missing_in_current = reference_keys - current_keys
+        extra_in_current = current_keys - reference_keys
         
-        if shape_a != shape_b:
-            return False, (
-                f"Shape mismatch at key '{key}': "
-                f"{model_a_name} has shape {shape_a}, "
-                f"{model_b_name} has shape {shape_b}. "
-                f"These models are not compatible for merging."
-            )
+        error_parts = []
+        if missing_in_current:
+            error_parts.append(f"Missing {len(missing_in_current)} keys in {current_name}")
+        if extra_in_current:
+            error_parts.append(f"Extra {len(extra_in_current)} keys in {current_name}")
+        
+        return False, " | ".join(error_parts)
+    
+    # Check if shapes match for all keys
+    for key in reference_keys:
+        if key not in current_model:
+            continue  # Already caught above
+            
+        if isinstance(current_model[key], torch.Tensor):
+            reference_shape = reference_shapes.get(key)
+            current_shape = current_model[key].shape
+            
+            if reference_shape != current_shape:
+                return False, (
+                    f"Shape mismatch for key '{key}': "
+                    f"{reference_name} has {reference_shape}, "
+                    f"{current_name} has {current_shape}"
+                )
     
     return True, None
