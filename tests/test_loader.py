@@ -273,8 +273,10 @@ class TestValidateModelsCompatible(unittest.TestCase):
             "layer2.weight": torch.randn(10, 10),
         }
         
+        reference_shapes = {k: v.shape for k, v in model_a.items()}
+        reference_keys = set(model_a.keys())
         is_compatible, error_msg = loader.validate_models_compatible(
-            model_a, model_b, "Model A", "Model B"
+            reference_shapes, reference_keys, model_b, "Model A", "Model B"
         )
         
         self.assertTrue(is_compatible)
@@ -289,8 +291,10 @@ class TestValidateModelsCompatible(unittest.TestCase):
             "layer1.weight": torch.randn(20, 20),  # Different shape
         }
         
+        reference_shapes = {k: v.shape for k, v in model_a.items()}
+        reference_keys = set(model_a.keys())
         is_compatible, error_msg = loader.validate_models_compatible(
-            model_a, model_b, "Model A", "Model B"
+            reference_shapes, reference_keys, model_b, "Model A", "Model B"
         )
         
         self.assertFalse(is_compatible)
@@ -313,12 +317,15 @@ class TestValidateModelsCompatible(unittest.TestCase):
             "other5.weight": torch.randn(10, 10),
         }
         
+        reference_shapes = {k: v.shape for k, v in model_a.items()}
+        reference_keys = set(model_a.keys())
         is_compatible, error_msg = loader.validate_models_compatible(
-            model_a, model_b, "Model A", "Model B"
+            reference_shapes, reference_keys, model_b, "Model A", "Model B"
         )
         
         self.assertFalse(is_compatible)
-        self.assertIn("insufficient key overlap", error_msg.lower())
+        # Check for the actual error message format
+        self.assertIn("5 keys", error_msg.lower())
     
     def test_skip_merge_keys_ignored(self):
         """Test that skip merge keys are not checked for shape compatibility."""
@@ -332,8 +339,10 @@ class TestValidateModelsCompatible(unittest.TestCase):
             "cond_stage_model.transformer.text_model.embeddings.position_ids": torch.arange(99),  # Different!
         }
         
+        reference_shapes = {k: v.shape for k, v in model_a.items()}
+        reference_keys = set(model_a.keys())
         is_compatible, error_msg = loader.validate_models_compatible(
-            model_a, model_b, "Model A", "Model B"
+            reference_shapes, reference_keys, model_b, "Model A", "Model B"
         )
         
         self.assertTrue(is_compatible)

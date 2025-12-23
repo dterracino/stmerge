@@ -76,6 +76,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mock patch paths in cache tests (corrected to `console.print_warning`)
 - Memory leak in accumulator using in-place operations with `.add_()` (shape-only validation)
 - Peak memory usage during multi-model merging via optimized tensor validation
+- `UnboundLocalError` in `merge_models()` when `validate_compatibility=False`
+- `validate_models_compatible()` now properly filters `SKIP_MERGE_KEYS` during validation
+- Test suite updated for refactored validation function signature (4 tests in `test_loader.py`)
 
 ### Testing
 

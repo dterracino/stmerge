@@ -101,6 +101,8 @@ def merge_models(
         )
         
         # Validate compatibility if requested
+        compatible = True
+        error_msg = None
         if validate_compatibility:
             compatible, error_msg = validate_models_compatible(
                 reference_shapes,  # Changed from reference_dict

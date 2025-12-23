@@ -170,12 +170,14 @@ def validate_models_compatible(
     Returns:
         (is_compatible, error_message) tuple
     """
-    current_keys = set(current_model.keys())
+    # Filter out skip merge keys from both models
+    filtered_reference_keys = {k for k in reference_keys if not config.should_skip_merge_key(k)}
+    current_keys = {k for k in current_model.keys() if not config.should_skip_merge_key(k)}
     
     # Check if key sets match
-    if reference_keys != current_keys:
-        missing_in_current = reference_keys - current_keys
-        extra_in_current = current_keys - reference_keys
+    if filtered_reference_keys != current_keys:
+        missing_in_current = filtered_reference_keys - current_keys
+        extra_in_current = current_keys - filtered_reference_keys
         
         error_parts = []
         if missing_in_current:
@@ -185,8 +187,8 @@ def validate_models_compatible(
         
         return False, " | ".join(error_parts)
     
-    # Check if shapes match for all keys
-    for key in reference_keys:
+    # Check if shapes match for all keys (excluding skip keys)
+    for key in filtered_reference_keys:
         if key not in current_model:
             continue  # Already caught above
             
