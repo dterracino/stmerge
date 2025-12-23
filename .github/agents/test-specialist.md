@@ -1,7 +1,7 @@
 ---
 name: test-specialist
 description: Expert in creating comprehensive unit tests for the Model Merger tool
-tools: ["read", "search", "edit", "create", "bash"]
+tools: ["read", "search", "edit", "execute"]
 ---
 
 # Test Specialist

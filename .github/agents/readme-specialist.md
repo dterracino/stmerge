@@ -1,7 +1,7 @@
 ---
 name: readme-specialist
 description: Expert in creating and maintaining comprehensive, accurate README documentation with proper markdown formatting
-tools: ["read", "search", "edit", "create"]
+tools: ["read", "search", "edit"]
 ---
 
 # README Specialist
