@@ -83,10 +83,10 @@ This means you can merge 8+ models without needing 56GB of RAM!
 
 ## Documentation
 
-- **[Installation Guide](docs/installation.md)** - Setup, requirements, GPU acceleration
-- **[Usage Guide](docs/usage.md)** - Converting, verifying, scanning, merging
-- **[Customization Guide](docs/customization.md)** - Architecture patterns, manifest editing
-- **[Troubleshooting Guide](docs/troubleshooting.md)** - Common issues and solutions
+- **[Installation Guide](docs/Installation.md)** - Setup, requirements, GPU acceleration
+- **[Usage Guide](docs/Usage.md)** - Converting, verifying, scanning, merging
+- **[Customization Guide](docs/Customization.md)** - Architecture patterns, manifest editing
+- **[Troubleshooting Guide](docs/Troubleshooting.md)** - Common issues and solutions
 - **[FAQ](docs/FAQ.md)** - Frequently asked questions
 - **[CHANGELOG](CHANGELOG.md)** - Version history and release notes
 - **[ROADMAP](ROADMAP.md)** - Future plans and development ideas
