@@ -8,13 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### In Progress
+### Planned
 
-- Model metadata caching system with automatic staleness detection
-- CLI `cache` subcommand for cache management operations
-- Integration of cache into core workflows (loader, manifest, merge, convert)
+- **Usage Guide Generation (.usage.json)** (v0.6.0) - *See [USAGE_GUIDE.md](model_merger/USAGE_GUIDE.md)*
+  - Automatic generation of `.usage.json` files for merged models
+  - Aggregates prompting recommendations from source models
+  - Optional LLM-powered extraction from CivitAI pages (if API key configured)
+  - Manual input fallback for usage information
+  
+- **LoRA Merging Support** (v0.8.0+)
+  - Merge LoRAs into models (bake LoRA weights permanently)
+  - Support for applying multiple LoRAs with different strengths
+  
+- Glob pattern support for scan command (e.g., `scan ./models/*.safetensors`)
+- Multi-GPU device selection (`--device cuda:0`, `--device cuda:1`)
+- Replace win10toast with better notification library (winotify or plyer)
+- Batch conversion (convert entire folders at once)
+- Block-weighted merging (different weights per layer)
+- Model info command (inspect models without merging)
+
+## [0.6.0] - 2024-12-24
 
 ### Added
+
+- **Consensus Merge Algorithm**
+  - New `consensus` merge method using inverse distance weighting for outlier-resistant merging
+  - `compute_consensus_weights()` function for per-element adaptive weighting
+  - Memory-mapped file loading for efficient per-tensor processing
+  - Configurable exponent parameter (default 4) for outlier suppression control
+  - `--merge-method {weighted,consensus}` CLI flag
+  - `--consensus-exponent <int>` CLI flag for fine-tuning suppression (range 2-8)
+  - `merge_method` and `consensus_exponent` fields in manifest schema
+  - Automatic routing between weighted sum and consensus algorithms
+  - 5 comprehensive unit tests for consensus weight computation
 
 - **CivitAI API Integration**
   - `civitai.py` module for querying CivitAI API by model hash
@@ -86,25 +112,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 21 unit tests for `cache.py` module covering load/save/query/staleness
 - 20 unit tests for `hasher.py` module with multiple algorithm support
 - All tests passing with proper mocking and isolation
-
-### Planned
-
-- **Usage Guide Generation (.usage.json)** (v0.6.0) - *See [USAGE_GUIDE.md](model_merger/USAGE_GUIDE.md)*
-  - Automatic generation of `.usage.json` files for merged models
-  - Aggregates prompting recommendations from source models
-  - Optional LLM-powered extraction from CivitAI pages (if API key configured)
-  - Manual input fallback for usage information
-  
-- **LoRA Merging Support** (v0.8.0+)
-  - Merge LoRAs into models (bake LoRA weights permanently)
-  - Support for applying multiple LoRAs with different strengths
-  
-- Glob pattern support for scan command (e.g., `scan ./models/*.safetensors`)
-- Multi-GPU device selection (`--device cuda:0`, `--device cuda:1`)
-- Replace win10toast with better notification library (winotify or plyer)
-- Batch conversion (convert entire folders at once)
-- Block-weighted merging (different weights per layer)
-- Model info command (inspect models without merging)
 
 ## [0.5.1] - 2024-11-26
 
@@ -210,7 +217,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - safetensors output format
 - Security-first design (no code execution from pickles)
 
-[Unreleased]: https://github.com/yourusername/model-merger/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/yourusername/model-merger/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/yourusername/model-merger/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/yourusername/model-merger/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/yourusername/model-merger/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/yourusername/model-merger/compare/v0.3.0...v0.4.0

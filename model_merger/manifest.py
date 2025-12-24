@@ -64,6 +64,8 @@ class MergeManifest:
     device: str = 'cpu'
     prune: bool = True
     overwrite: bool = False
+    merge_method: str = config.MERGE_METHOD_WEIGHTED_SUM
+    consensus_exponent: int = config.DEFAULT_CONSENSUS_EXPONENT
     
     def __post_init__(self):
         """Ensure output is an OutputEntry, even if initialized with just a string."""
@@ -84,6 +86,8 @@ class MergeManifest:
             'device': self.device,
             'prune': self.prune,
             'overwrite': self.overwrite,
+            'merge_method': self.merge_method,
+            'consensus_exponent': self.consensus_exponent,
         }
     
     @classmethod
@@ -124,6 +128,8 @@ class MergeManifest:
             device=data.get('device', 'cpu'),
             prune=data.get('prune', True),
             overwrite=data.get('overwrite', False),
+            merge_method=data.get('merge_method', config.MERGE_METHOD_WEIGHTED_SUM),
+            consensus_exponent=data.get('consensus_exponent', config.DEFAULT_CONSENSUS_EXPONENT),
         )
     
     def save(self, filepath: Path) -> None:

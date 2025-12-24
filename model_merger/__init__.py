@@ -67,6 +67,7 @@ from .merger import (
     merge_models,
     convert_precision,
     prune_model,
+    compute_consensus_weights,
 )
 
 from .vae import (

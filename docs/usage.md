@@ -364,6 +364,146 @@ result = A*0.25 + B*0.25 + C*0.25 + D*0.25
 
 All models contribute equally. Much better! 🎯
 
+## Merge Methods
+
+Model Merger offers two merging algorithms to choose from:
+
+### Weighted Sum Merge (Default)
+
+Traditional weighted linear interpolation. This is the classic merge method.
+
+**How it works:**
+
+```text
+result = model_A × weight_A + model_B × weight_B + ...
+```
+
+Each model is multiplied by its weight and added together.
+
+**Advantages:**
+
+- Fast - uses accumulator pattern (only 2 models in RAM at once)
+- Memory efficient - can merge 8+ models without massive RAM
+- Predictable - weights directly control contribution
+- Simple - easy to understand and control
+
+**When to use:**
+
+- General purpose merging
+- Quick experiments
+- When you know exactly how much of each model you want
+- Memory-constrained systems
+
+**Example:**
+
+```bash
+python run.py merge --manifest my_manifest.json --merge-method weighted
+```
+
+### Consensus Merge (Advanced)
+
+Outlier-resistant merging using inverse distance weighting. This algorithm automatically identifies and suppresses outlier values at each parameter position.
+
+**How it works:**
+
+For each individual weight position across all models:
+
+1. **Compute pairwise distances** - Calculate how far each value is from all others
+2. **Normalize** - Scale distances to [0, 1] range
+3. **Invert** - Values close to consensus get high scores, outliers get low scores
+4. **Apply power** - Raise to exponent (default 4) to exponentially suppress outliers
+5. **Normalize to sum=1** - Create probability distribution
+6. **Weighted average** - Multiply values by computed weights
+
+This happens **per-element**, so different layers can have different consensus patterns.
+
+**Advantages:**
+
+- Automatic outlier suppression - reduces artifacts
+- Better coherence when merging diverse models
+- Produces balanced outputs without manual tuning
+- Particularly good with 4+ models
+
+**Trade-offs:**
+
+- Slower - must process each tensor element individually
+- Higher memory - loads one tensor from all models at once
+- Ignores user-provided weights - computes them adaptively
+- More complex - harder to predict exact results
+
+**When to use:**
+
+- Merging many diverse models (4+)
+- Reducing artifacts and incoherence
+- When models have conflicting characteristics
+- When you want automatic balancing
+
+**Parameters:**
+
+`--consensus-exponent <int>` - Controls outlier suppression strength (default: 4, range: 2-8)
+
+- **2** - Gentle suppression, tolerates diversity
+- **4** - Moderate suppression (recommended default)
+- **6** - Aggressive suppression
+- **8** - Very aggressive, only near-identical values get weight
+
+**Example:**
+
+```bash
+# Consensus with default exponent (4)
+python run.py merge --manifest my_manifest.json --merge-method consensus
+
+# Gentle consensus (more diversity)
+python run.py merge --manifest my_manifest.json --merge-method consensus --consensus-exponent 2
+
+# Aggressive consensus (strong outlier removal)
+python run.py merge --manifest my_manifest.json --merge-method consensus --consensus-exponent 8
+```
+
+**Mathematical Detail:**
+
+Given N model values `[v₁, v₂, ..., vₙ]` at a weight position:
+
+```text
+For each value vᵢ:
+  avg_distance[i] = mean(|vᵢ - vⱼ| for all j)
+  
+normalized = (avg_distance - min) / (max - min)
+inverted = 1 - normalized
+powered = inverted ^ exponent
+weights = powered / sum(powered)
+
+result = Σ(vᵢ × weights[i])
+```
+
+**Comparison Table:**
+
+| Aspect | Weighted Sum | Consensus |
+| -------- | -------------- | ----------- |
+| **Speed** | ⚡ Fast | 🐢 Slower (per-element processing) |
+| **Memory** | 💚 Low (2 models) | 💛 Moderate (1 tensor × N models) |
+| **Outlier handling** | ❌ None | ✅ Automatic suppression |
+| **User weights** | ✅ Respected | ❌ Ignored (adaptive) |
+| **Predictability** | ✅ High | 🟡 Medium |
+| **Best for** | 2-4 similar models | 4+ diverse models |
+| **Artifacts** | 🟡 Possible | ✅ Reduced |
+
+**Which method should you use?**
+
+- **Use Weighted Sum** if:
+  - You're merging 2-3 models
+  - You know the exact weights you want
+  - Speed is important
+  - Memory is limited
+  
+- **Use Consensus** if:
+  - You're merging 4+ models
+  - Models have conflicting characteristics
+  - You want automatic balancing
+  - Reducing artifacts is priority
+
+**Pro tip:** Try both! Merge your models with weighted sum first (fast), then try consensus to see if it improves coherence. You can compare the results and choose the better one.
+
 ### File Size Expectations
 
 A typical SDXL model:

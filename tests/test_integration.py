@@ -388,5 +388,123 @@ class TestHashVerification(unittest.TestCase):
         self.assertNotEqual(hash1, hash2)
 
 
+class TestConsensusMergeIntegration(unittest.TestCase):
+    """Integration tests comparing weighted sum and consensus merge methods."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_files = []
+        self.temp_dir = Path(tempfile.mkdtemp())
+    
+    def tearDown(self):
+        """Clean up test files."""
+        cleanup_test_files(self.test_files)
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+    
+    @patch('model_merger.loader.console')
+    @patch('model_merger.loader.print_info')
+    @patch('model_merger.merger.console')
+    @patch('model_merger.merger.print_section')
+    @patch('model_merger.merger.print_step')
+    @patch('model_merger.merger.print_success')
+    @patch('model_merger.merger.create_progress')
+    def test_both_methods_produce_valid_results(
+        self, mock_progress, mock_success, mock_step, 
+        mock_section, mock_merger_console, mock_print_info, mock_loader_console
+    ):
+        """Test that both merge methods produce valid outputs."""
+        mock_progress.return_value.__enter__ = MagicMock(return_value=MagicMock())
+        mock_progress.return_value.__exit__ = MagicMock(return_value=False)
+        
+        # Create test models
+        model1_path = create_dummy_model("consensus_test1.safetensors", seed=1, temp_dir=self.temp_dir)
+        model2_path = create_dummy_model("consensus_test2.safetensors", seed=2, temp_dir=self.temp_dir)
+        self.test_files.extend([model1_path, model2_path])
+        
+        entries = [
+            ModelEntry(path=str(model1_path), weight=0.5, architecture="SDXL"),
+            ModelEntry(path=str(model2_path), weight=0.5, architecture="SDXL")
+        ]
+        
+        # Merge with weighted sum
+        result_weighted = merger.merge_models(
+            entries, 
+            validate_compatibility=False,
+            merge_method='weighted_sum'
+        )
+        
+        # Merge with consensus
+        result_consensus = merger.merge_models(
+            entries, 
+            validate_compatibility=False,
+            merge_method='consensus',
+            consensus_exponent=4
+        )
+        
+        # Both should have same keys (excluding skip keys which consensus filters)
+        # Consensus skips SKIP_MERGE_KEYS, weighted sum includes them
+        weighted_keys = set(result_weighted.keys())
+        consensus_keys = set(result_consensus.keys())
+        
+        # Consensus should be a subset (it filters skip keys)
+        self.assertTrue(consensus_keys.issubset(weighted_keys))
+        
+        # Both should have valid tensors
+        for key in consensus_keys:  # Check common keys
+            self.assertIsInstance(result_weighted[key], torch.Tensor)
+            self.assertIsInstance(result_consensus[key], torch.Tensor)
+            self.assertEqual(result_weighted[key].shape, result_consensus[key].shape)
+            
+            # Tensors should not have NaN or Inf
+            self.assertFalse(torch.isnan(result_weighted[key]).any())
+            self.assertFalse(torch.isnan(result_consensus[key]).any())
+            self.assertFalse(torch.isinf(result_weighted[key]).any())
+            self.assertFalse(torch.isinf(result_consensus[key]).any())
+    
+    @patch('model_merger.loader.console')
+    @patch('model_merger.loader.print_info')
+    @patch('model_merger.merger.console')
+    @patch('model_merger.merger.print_section')
+    @patch('model_merger.merger.print_step')
+    @patch('model_merger.merger.print_success')
+    @patch('model_merger.merger.create_progress')
+    def test_consensus_with_multiple_models(
+        self, mock_progress, mock_success, mock_step, 
+        mock_section, mock_merger_console, mock_print_info, mock_loader_console
+    ):
+        """Test consensus merge with multiple models to see exponent effects."""
+        mock_progress.return_value.__enter__ = MagicMock(return_value=MagicMock())
+        mock_progress.return_value.__exit__ = MagicMock(return_value=False)
+        
+        # Create 4 test models with different seeds
+        model1_path = create_dummy_model("consensus_multi1.safetensors", seed=10, temp_dir=self.temp_dir)
+        model2_path = create_dummy_model("consensus_multi2.safetensors", seed=20, temp_dir=self.temp_dir)
+        model3_path = create_dummy_model("consensus_multi3.safetensors", seed=30, temp_dir=self.temp_dir)
+        model4_path = create_dummy_model("consensus_multi4.safetensors", seed=40, temp_dir=self.temp_dir)
+        self.test_files.extend([model1_path, model2_path, model3_path, model4_path])
+        
+        entries = [
+            ModelEntry(path=str(model1_path), weight=0.25, architecture="SDXL"),
+            ModelEntry(path=str(model2_path), weight=0.25, architecture="SDXL"),
+            ModelEntry(path=str(model3_path), weight=0.25, architecture="SDXL"),
+            ModelEntry(path=str(model4_path), weight=0.25, architecture="SDXL")
+        ]
+        
+        # Merge with consensus (exponent should have effect with 4+ models)
+        result_consensus = merger.merge_models(
+            entries, 
+            validate_compatibility=False,
+            merge_method='consensus',
+            consensus_exponent=4
+        )
+        
+        # Should produce valid output
+        self.assertGreater(len(result_consensus), 0)
+        for key, tensor in result_consensus.items():
+            self.assertIsInstance(tensor, torch.Tensor)
+            self.assertFalse(torch.isnan(tensor).any())
+            self.assertFalse(torch.isinf(tensor).any())
+
+
 if __name__ == '__main__':
     unittest.main()

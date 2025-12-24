@@ -361,5 +361,81 @@ class TestPruneModel(unittest.TestCase):
         self.assertEqual(result, {})
 
 
+class TestComputeConsensusWeights(unittest.TestCase):
+    """Tests for compute_consensus_weights function."""
+    
+    def test_basic_consensus_with_outlier(self):
+        """Test that outliers get suppressed."""
+        values = [1.0, 1.1, 1.05, 5.0]  # Last value is clear outlier
+        weights = merger.compute_consensus_weights(values, exponent=4)
+        
+        # Check properties
+        self.assertEqual(weights.shape[0], 4)
+        self.assertAlmostEqual(weights.sum().item(), 1.0, places=5)
+        
+        # Outlier should have very low weight
+        self.assertLess(weights[3].item(), 0.01)
+        
+        # Consensus values should have similar weights
+        self.assertGreater(weights[0].item(), 0.3)
+        self.assertGreater(weights[1].item(), 0.3)
+        self.assertGreater(weights[2].item(), 0.3)
+    
+    def test_identical_values(self):
+        """Test that identical values get equal weights."""
+        values = [2.0, 2.0, 2.0, 2.0]
+        weights = merger.compute_consensus_weights(values, exponent=4)
+        
+        # All weights should be equal (0.25 each)
+        for weight in weights:
+            self.assertAlmostEqual(weight.item(), 0.25, places=5)
+    
+    def test_single_value(self):
+        """Test single value returns weight of 1.0."""
+        values = [5.0]
+        weights = merger.compute_consensus_weights(values, exponent=4)
+        
+        self.assertEqual(weights.shape[0], 1)
+        self.assertAlmostEqual(weights[0].item(), 1.0, places=5)
+    
+    def test_different_exponents_all_valid(self):
+        """Test that different exponents all produce valid probability distributions."""
+        values = [1.0, 1.0, 1.0, 1.3]
+        
+        for exponent in [2, 4, 6, 8]:
+            with self.subTest(exponent=exponent):
+                weights = merger.compute_consensus_weights(values, exponent=exponent)
+                
+                # Should sum to 1.0
+                self.assertAlmostEqual(weights.sum().item(), 1.0, places=5)
+                
+                # All weights should be non-negative
+                for w in weights:
+                    self.assertGreaterEqual(w.item(), 0.0)
+    
+    def test_tensor_input(self):
+        """Test that tensor input works correctly."""
+        values = torch.tensor([1.0, 1.1, 1.05, 5.0])
+        weights = merger.compute_consensus_weights(values, exponent=4)
+        
+        self.assertIsInstance(weights, torch.Tensor)
+        self.assertAlmostEqual(weights.sum().item(), 1.0, places=5)
+        self.assertLess(weights[3].item(), 0.01)  # Outlier suppressed
+    
+    def test_two_clusters(self):
+        """Test behavior with two distinct clusters of values."""
+        values = [1.0, 1.1, 5.0, 5.1]
+        weights = merger.compute_consensus_weights(values, exponent=2)
+        
+        # Both clusters should get some weight
+        # Values in each cluster should have similar weights
+        cluster1_weight = weights[0].item() + weights[1].item()
+        cluster2_weight = weights[2].item() + weights[3].item()
+        
+        # Both clusters should have meaningful weight
+        self.assertGreater(cluster1_weight, 0.1)
+        self.assertGreater(cluster2_weight, 0.1)
+
+
 if __name__ == '__main__':
     unittest.main()

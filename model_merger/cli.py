@@ -304,6 +304,15 @@ def cmd_merge(args):
         manifest.device = args.device
     if args.no_prune:
         manifest.prune = False  # CLI says don't prune, update manifest
+    if getattr(args, 'merge_method', None):
+        # Map CLI shorthand to internal constant
+        method_map = {
+            'weighted': config.MERGE_METHOD_WEIGHTED_SUM,
+            'consensus': config.MERGE_METHOD_CONSENSUS
+        }
+        manifest.merge_method = method_map[args.merge_method]
+    if getattr(args, 'consensus_exponent', None):
+        manifest.consensus_exponent = args.consensus_exponent
     
     # Check CUDA availability and warn if needed
     manifest.device = check_cuda_availability(manifest.device)
@@ -342,7 +351,9 @@ def cmd_merge(args):
         merged_dict = merger_module.merge_models(
             model_entries=manifest.models,
             device=manifest.device,
-            validate_compatibility=True
+            validate_compatibility=True,
+            merge_method=manifest.merge_method,
+            consensus_exponent=manifest.consensus_exponent
         )
     except Exception as e:
         error_msg = str(e)
@@ -567,6 +578,24 @@ Examples:
         '--notify',
         action='store_true',
         help='Send desktop notification when complete (long operations only)'
+    )
+    merge_parser.add_argument(
+        '--merge-method',
+        type=str,
+        choices=['weighted', 'consensus'],
+        help=(
+            'Merge algorithm to use (overrides manifest). '
+            'weighted: traditional weighted sum (fast, default). '
+            'consensus: outlier-resistant merge (slower, better for diverse models)'
+        )
+    )
+    merge_parser.add_argument(
+        '--consensus-exponent',
+        type=int,
+        help=(
+            'Exponent for consensus merge outlier suppression (default: 4). '
+            'Higher values = more aggressive outlier suppression. Typical range: 2-8'
+        )
     )
     
     # Convert subcommand

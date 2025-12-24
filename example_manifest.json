@@ -42,5 +42,7 @@
   "output_precision": "match",
   "device": "cpu",
   "prune": true,
-  "overwrite": false
+  "overwrite": false,
+  "merge_method": "weighted_sum",
+  "consensus_exponent": 4
 }

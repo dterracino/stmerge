@@ -110,12 +110,21 @@ SKIP_MERGE_KEYS = [
     'cond_stage_model.transformer.text_model.embeddings.position_ids',
 ]
 
+# Merge method constants
+MERGE_METHOD_WEIGHTED_SUM = 'weighted_sum'
+MERGE_METHOD_CONSENSUS = 'consensus'
+
+# Consensus merge settings
+DEFAULT_CONSENSUS_EXPONENT = 4  # Power to apply for outlier suppression (higher = more aggressive)
+
 # Merge settings defaults
 DEFAULT_MERGE_SETTINGS = {
     'output_precision': 'match',  # 'match', 'fp16', or 'fp32'
     'device': 'cpu',              # Keep on CPU to avoid VRAM issues
     'prune': True,                # Remove unnecessary keys
     'overwrite': False,           # Don't overwrite existing files by default
+    'merge_method': MERGE_METHOD_WEIGHTED_SUM,  # 'weighted_sum' or 'consensus'
+    'consensus_exponent': DEFAULT_CONSENSUS_EXPONENT,  # Exponent for consensus merging
 }
 
 # Manifest defaults

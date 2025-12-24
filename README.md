@@ -81,6 +81,75 @@ result += model3 * weight3  (load, add, free)
 
 This means you can merge 8+ models without needing 56GB of RAM!
 
+## Merge Methods
+
+Model Merger supports two merging algorithms:
+
+### Weighted Sum (Default)
+
+Traditional weighted linear interpolation. Fast and memory-efficient.
+
+```bash
+python run.py merge --manifest my_manifest.json --merge-method weighted
+```
+
+**Pros:**
+
+- Fast - uses accumulator pattern (only 2 models in RAM)
+- Memory efficient
+- Predictable results
+- Works with any number of models
+
+**Best for:** General purpose merging, quick experiments
+
+### Consensus Merge (New!)
+
+Outlier-resistant merging using inverse distance weighting. Computes adaptive weights for each parameter based on inter-model agreement.
+
+```bash
+python run.py merge --manifest my_manifest.json --merge-method consensus
+```
+
+**Pros:**
+
+- Suppresses outlier values automatically
+- Better coherence when merging diverse models
+- Reduces artifacts from conflicting models
+- Configurable outlier suppression strength
+
+**Best for:** Merging many diverse models, reducing artifacts, producing balanced outputs
+
+**Parameters:**
+
+- `--consensus-exponent <int>` - Outlier suppression strength (default: 4, range: 2-8)
+  - Higher = more aggressive outlier suppression
+  - Lower = more tolerance for diversity
+
+**How it works:** For each weight position across all models, consensus merge computes the average distance from each value to all others. Values that are close to the consensus get high weights, outliers get suppressed exponentially. This happens per-element, so different layers can have different consensus patterns.
+
+**Comparison:**
+
+| Feature | Weighted Sum | Consensus |
+| --------- | ------------- | ----------- |
+| Speed | ⚡ Fast | 🐢 Slower |
+| Memory | 💚 Low (2 models) | 💛 Moderate (1 tensor × N models) |
+| Outlier handling | ❌ None | ✅ Automatic suppression |
+| User weights | ✅ Respected | ❌ Ignored (computed adaptively) |
+| Best use case | Quick merges, few models | Diverse models, artifact reduction |
+
+**Example:**
+
+```bash
+# Quick weighted merge (respects your 0.5/0.5 weights)
+python run.py merge --manifest manifest.json --merge-method weighted
+
+# Consensus merge with moderate suppression
+python run.py merge --manifest manifest.json --merge-method consensus --consensus-exponent 4
+
+# Consensus with aggressive outlier removal
+python run.py merge --manifest manifest.json --merge-method consensus --consensus-exponent 8
+```
+
 ## Documentation
 
 - **[Installation Guide](docs/Installation.md)** - Setup, requirements, GPU acceleration
