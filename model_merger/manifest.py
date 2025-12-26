@@ -22,7 +22,9 @@ class ModelEntry:
     path: str
     weight: float
     architecture: str
+    index: int  # Required: position in merge sequence (0-based, contiguous)
     sha256: Optional[str] = None
+    crc32: Optional[str] = None  # 8-character hex CRC32 (for legacy A1111 hash)
     precision_detected: Optional[str] = None
     
     def to_dict(self) -> Dict:
@@ -35,6 +37,7 @@ class VAEEntry:
     """Represents the VAE in the merge manifest."""
     path: str
     sha256: Optional[str] = None
+    crc32: Optional[str] = None  # 8-character hex CRC32 (for legacy A1111 hash)
     precision_detected: Optional[str] = None
     
     def to_dict(self) -> Dict:
@@ -94,6 +97,29 @@ class MergeManifest:
     def from_dict(cls, data: Dict) -> 'MergeManifest':
         """Create manifest from dictionary (loaded from JSON)."""
         models = [ModelEntry(**m) for m in data['models']]
+        
+        # Validate model indices
+        indices = [m.index for m in models]
+        expected = list(range(len(models)))
+        
+        # Check for duplicates
+        if len(indices) != len(set(indices)):
+            raise ValueError(
+                f"Duplicate model indices found: {indices}\n"
+                f"Each model must have a unique index."
+            )
+        
+        # Check for contiguous 0-based sequence
+        if sorted(indices) != expected:
+            raise ValueError(
+                f"Model indices must be contiguous starting from 0.\n"
+                f"Expected: {expected}\n"
+                f"Got: {sorted(indices)}\n"
+                f"Please renumber your models in the manifest."
+            )
+        
+        # Sort models by index (so JSON array order doesn't matter)
+        models.sort(key=lambda m: m.index)
         
         # Handle VAE - could be old format (string) or new format (dict)
         vae_data = data.get('vae')
@@ -238,21 +264,17 @@ def scan_folder(
     model_entries = []
     skipped_files = []
     
-    for model_file in model_files:
+    for idx, model_file in enumerate(model_files):
         try:
             # Detect architecture for this specific file
             arch = config.detect_architecture_from_filename(model_file.name)
             
-            # Optionally compute hash
-            file_hash = None
-            if compute_hashes:
-                print_info(f"Computing hash for {model_file.name}...")
-                file_hash = compute_file_hash(model_file)
-            
-            # Load model briefly to detect precision
-            console.print(f"[cyan]Detecting precision for {model_file.name}...[/cyan]")
-            state_dict, metadata = load_model(model_file, device='cpu', compute_hash=False)
+            # Load model briefly to detect precision (and optionally compute hashes)
+            console.print(f"[cyan]Processing {model_file.name}...[/cyan]")
+            state_dict, metadata = load_model(model_file, device='cpu', compute_hash=compute_hashes)
             precision = metadata['precision']
+            file_hash = metadata.get('sha256')
+            file_crc32 = metadata.get('crc32')
             del state_dict  # Free memory immediately
             
             # Don't set weight yet - we'll do that after we know how many loaded successfully
@@ -260,7 +282,9 @@ def scan_folder(
                 path=str(model_file),
                 weight=0.0,  # Placeholder, will be set below
                 architecture=arch,
+                index=idx,  # Explicit sequential index
                 sha256=file_hash,
+                crc32=file_crc32,
                 precision_detected=precision
             )
             model_entries.append(entry)
@@ -289,6 +313,11 @@ def scan_folder(
         console.print(f"\n[yellow]⚠ Skipped {len(skipped_files)} file(s) due to errors:[/yellow]")
         for skipped in skipped_files:
             console.print(f"  [dim]- {skipped}[/dim]")
+        
+        # Renumber indices to be contiguous after skipping files
+        print_info("Renumbering model indices to be contiguous...")
+        for new_idx, entry in enumerate(model_entries):
+            entry.index = new_idx
     
     # NOW calculate weights based on actual successful entries
     if equal_weights:
@@ -307,23 +336,18 @@ def scan_folder(
         if not vae_file.exists():
             raise FileNotFoundError(f"VAE file not found: {vae_file}")
         
-        vae_hash = None
-        vae_precision = None
-        
-        # Compute hash if requested
-        if compute_hashes:
-            print_info(f"Computing hash for VAE: {vae_file.name}...")
-            vae_hash = compute_file_hash(vae_file)
-        
-        # Detect VAE precision
-        console.print(f"[cyan]Detecting VAE precision for {vae_file.name}...[/cyan]")
-        vae_state_dict, vae_metadata = load_vae(vae_file, device='cpu', compute_hash=False)
+        # Load VAE and optionally compute hashes
+        console.print(f"[cyan]Processing VAE: {vae_file.name}...[/cyan]")
+        vae_state_dict, vae_metadata = load_vae(vae_file, device='cpu', compute_hash=compute_hashes)
         vae_precision = vae_metadata['precision']
+        vae_hash = vae_metadata.get('sha256')
+        vae_crc32 = vae_metadata.get('crc32')
         del vae_state_dict  # Free memory
         
         vae_entry = VAEEntry(
             path=str(vae_file),
             sha256=vae_hash,
+            crc32=vae_crc32,
             precision_detected=vae_precision
         )
     

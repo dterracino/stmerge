@@ -28,7 +28,8 @@ class TestModelEntry(unittest.TestCase):
         entry = ModelEntry(
             path="/path/to/model.safetensors",
             weight=0.5,
-            architecture="SDXL"
+            architecture="SDXL",
+            index=0
         )
         
         self.assertEqual(entry.path, "/path/to/model.safetensors")
@@ -43,6 +44,7 @@ class TestModelEntry(unittest.TestCase):
             path="/path/to/model.safetensors",
             weight=0.5,
             architecture="SDXL",
+            index=0,
             sha256="abc123",
             precision_detected="fp16"
         )
@@ -56,6 +58,7 @@ class TestModelEntry(unittest.TestCase):
             path="/path/to/model.safetensors",
             weight=0.5,
             architecture="SDXL",
+            index=0,
             sha256="abc123"
         )
         
@@ -67,6 +70,41 @@ class TestModelEntry(unittest.TestCase):
         self.assertEqual(result['sha256'], "abc123")
         # None values should be excluded
         self.assertNotIn('precision_detected', result)
+    
+    def test_model_entry_with_crc32(self):
+        """Test ModelEntry stores CRC32 field."""
+        entry = ModelEntry(
+            path="/path/to/model.safetensors",
+            weight=0.5,
+            architecture="SDXL",
+            index=0,
+            crc32="12345678"
+        )
+        
+        self.assertEqual(entry.crc32, "12345678")
+    
+    def test_model_entry_crc32_in_to_dict(self):
+        """Test that CRC32 appears in serialization."""
+        entry = ModelEntry(
+            path="/path/to/model.safetensors",
+            weight=0.5,
+            architecture="SDXL",
+            index=0,
+            crc32="abcd1234"
+        )
+        
+        result = entry.to_dict()
+        self.assertEqual(result['crc32'], "abcd1234")
+    
+    def test_model_entry_index_required(self):
+        """Test that index is a required field."""
+        with self.assertRaises(TypeError):
+            ModelEntry(
+                path="/path/to/model.safetensors",
+                weight=0.5,
+                architecture="SDXL"
+                # Missing index - should fail
+            )
 
 
 class TestVAEEntry(unittest.TestCase):
@@ -120,8 +158,8 @@ class TestMergeManifest(unittest.TestCase):
     def test_manifest_creation_with_defaults(self):
         """Test creating a manifest with default values."""
         models = [
-            ModelEntry(path="model1.safetensors", weight=0.5, architecture="SDXL"),
-            ModelEntry(path="model2.safetensors", weight=0.5, architecture="SDXL"),
+            ModelEntry(path="model1.safetensors", weight=0.5, architecture="SDXL", index=0),
+            ModelEntry(path="model2.safetensors", weight=0.5, architecture="SDXL", index=1),
         ]
         
         manifest = MergeManifest(models=models)
@@ -136,7 +174,7 @@ class TestMergeManifest(unittest.TestCase):
     
     def test_manifest_output_post_init_string(self):
         """Test that string output is converted to OutputEntry."""
-        models = [ModelEntry(path="m.safetensors", weight=1.0, architecture="SDXL")]
+        models = [ModelEntry(path="m.safetensors", weight=1.0, architecture="SDXL", index=0)]
         manifest = MergeManifest(models=models, output="custom_output.safetensors")
         
         self.assertIsInstance(manifest.output, OutputEntry)
@@ -144,7 +182,7 @@ class TestMergeManifest(unittest.TestCase):
     
     def test_manifest_output_post_init_none(self):
         """Test that None output is converted to default OutputEntry."""
-        models = [ModelEntry(path="m.safetensors", weight=1.0, architecture="SDXL")]
+        models = [ModelEntry(path="m.safetensors", weight=1.0, architecture="SDXL", index=0)]
         manifest = MergeManifest(models=models, output=None)
         
         self.assertIsInstance(manifest.output, OutputEntry)
@@ -152,7 +190,7 @@ class TestMergeManifest(unittest.TestCase):
     def test_manifest_to_dict(self):
         """Test manifest serialization to dict."""
         models = [
-            ModelEntry(path="model1.safetensors", weight=0.5, architecture="SDXL"),
+            ModelEntry(path="model1.safetensors", weight=0.5, architecture="SDXL", index=0),
         ]
         vae = VAEEntry(path="vae.safetensors")
         manifest = MergeManifest(models=models, vae=vae)
@@ -168,7 +206,7 @@ class TestMergeManifest(unittest.TestCase):
         """Test manifest deserialization from dict."""
         data = {
             'models': [
-                {'path': 'model1.safetensors', 'weight': 0.5, 'architecture': 'SDXL'}
+                {'path': 'model1.safetensors', 'weight': 0.5, 'architecture': 'SDXL', 'index': 0}
             ],
             'vae': {'path': 'vae.safetensors'},
             'output': {'path': 'output.safetensors'},
@@ -193,7 +231,7 @@ class TestMergeManifest(unittest.TestCase):
         """Test backward compatibility with old VAE format (string path)."""
         data = {
             'models': [
-                {'path': 'model1.safetensors', 'weight': 1.0, 'architecture': 'SDXL'}
+                {'path': 'model1.safetensors', 'weight': 1.0, 'architecture': 'SDXL', 'index': 0}
             ],
             'vae': 'old_vae.safetensors',  # Old string format
         }
@@ -207,7 +245,7 @@ class TestMergeManifest(unittest.TestCase):
         """Test backward compatibility with old output format (string path)."""
         data = {
             'models': [
-                {'path': 'model1.safetensors', 'weight': 1.0, 'architecture': 'SDXL'}
+                {'path': 'model1.safetensors', 'weight': 1.0, 'architecture': 'SDXL', 'index': 0}
             ],
             'output': 'old_output.safetensors',  # Old string format
         }
@@ -220,8 +258,8 @@ class TestMergeManifest(unittest.TestCase):
     def test_manifest_roundtrip(self):
         """Test that to_dict -> from_dict produces equivalent manifest."""
         models = [
-            ModelEntry(path="m1.safetensors", weight=0.5, architecture="SDXL"),
-            ModelEntry(path="m2.safetensors", weight=0.5, architecture="SDXL"),
+            ModelEntry(path="m1.safetensors", weight=0.5, architecture="SDXL", index=0),
+            ModelEntry(path="m2.safetensors", weight=0.5, architecture="SDXL", index=1),
         ]
         original = MergeManifest(
             models=models,
@@ -241,6 +279,67 @@ class TestMergeManifest(unittest.TestCase):
         self.assertEqual(restored.output.path, 'out.safetensors')
         self.assertEqual(restored.output_precision, 'fp16')
         self.assertEqual(restored.device, 'cuda')
+    
+    def test_manifest_from_dict_detects_duplicate_indices(self):
+        """Test that duplicate indices raise an error."""
+        data = {
+            'models': [
+                {'path': 'model1.safetensors', 'weight': 0.5, 'architecture': 'SDXL', 'index': 0},
+                {'path': 'model2.safetensors', 'weight': 0.5, 'architecture': 'SDXL', 'index': 0}  # Duplicate!
+            ]
+        }
+        
+        with self.assertRaises(ValueError) as context:
+            MergeManifest.from_dict(data)
+        
+        self.assertIn('duplicate', str(context.exception).lower())
+    
+    def test_manifest_from_dict_detects_non_contiguous_indices(self):
+        """Test that non-contiguous indices raise an error."""
+        data = {
+            'models': [
+                {'path': 'model1.safetensors', 'weight': 0.3, 'architecture': 'SDXL', 'index': 0},
+                {'path': 'model2.safetensors', 'weight': 0.3, 'architecture': 'SDXL', 'index': 2},  # Gap!
+                {'path': 'model3.safetensors', 'weight': 0.4, 'architecture': 'SDXL', 'index': 5}
+            ]
+        }
+        
+        with self.assertRaises(ValueError) as context:
+            MergeManifest.from_dict(data)
+        
+        self.assertIn('contiguous', str(context.exception).lower())
+    
+    def test_manifest_from_dict_sorts_by_index(self):
+        """Test that models are automatically sorted by index."""
+        data = {
+            'models': [
+                {'path': 'model3.safetensors', 'weight': 0.3, 'architecture': 'SDXL', 'index': 2},
+                {'path': 'model1.safetensors', 'weight': 0.3, 'architecture': 'SDXL', 'index': 0},
+                {'path': 'model2.safetensors', 'weight': 0.4, 'architecture': 'SDXL', 'index': 1}
+            ]
+        }
+        
+        result = MergeManifest.from_dict(data)
+        
+        # Should be sorted: model1, model2, model3
+        self.assertEqual(result.models[0].path, 'model1.safetensors')
+        self.assertEqual(result.models[1].path, 'model2.safetensors')
+        self.assertEqual(result.models[2].path, 'model3.safetensors')
+    
+    def test_manifest_from_dict_rejects_negative_index(self):
+        """Test that negative indices cause validation errors."""
+        data = {
+            'models': [
+                {'path': 'model1.safetensors', 'weight': 0.5, 'architecture': 'SDXL', 'index': -1},
+                {'path': 'model2.safetensors', 'weight': 0.5, 'architecture': 'SDXL', 'index': 0}
+            ]
+        }
+        
+        with self.assertRaises(ValueError) as context:
+            MergeManifest.from_dict(data)
+        
+        # Should fail contiguous check (expects 0, 1 not -1, 0)
+        self.assertIn('contiguous', str(context.exception).lower())
 
 
 class TestManifestSaveLoad(unittest.TestCase):
@@ -258,7 +357,7 @@ class TestManifestSaveLoad(unittest.TestCase):
     def test_save_and_load(self, mock_print):
         """Test saving and loading a manifest."""
         models = [
-            ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL")
+            ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL", index=0)
         ]
         original = MergeManifest(models=models)
         
@@ -277,7 +376,7 @@ class TestManifestSaveLoad(unittest.TestCase):
     def test_saved_file_is_valid_json(self, mock_print):
         """Test that saved manifest is valid JSON."""
         models = [
-            ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL")
+            ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL", index=0)
         ]
         manifest = MergeManifest(models=models)
         
@@ -434,7 +533,7 @@ class TestValidateManifest(unittest.TestCase):
         self.test_files.append(model_path)
         
         models = [
-            ModelEntry(path=str(model_path), weight=1.0, architecture="SDXL")
+            ModelEntry(path=str(model_path), weight=1.0, architecture="SDXL", index=0)
         ]
         manifest = MergeManifest(models=models)
         
@@ -448,7 +547,8 @@ class TestValidateManifest(unittest.TestCase):
             ModelEntry(
                 path="nonexistent_model.safetensors",
                 weight=1.0,
-                architecture="SDXL"
+                architecture="SDXL",
+                index=0
             )
         ]
         manifest = MergeManifest(models=models)
@@ -463,7 +563,7 @@ class TestValidateManifest(unittest.TestCase):
         self.test_files.append(model_path)
         
         models = [
-            ModelEntry(path=str(model_path), weight=1.0, architecture="SDXL")
+            ModelEntry(path=str(model_path), weight=1.0, architecture="SDXL", index=0)
         ]
         manifest = MergeManifest(
             models=models,
@@ -481,8 +581,8 @@ class TestValidateManifest(unittest.TestCase):
         self.test_files.extend([model1, model2])
         
         models = [
-            ModelEntry(path=str(model1), weight=0.3, architecture="SDXL"),
-            ModelEntry(path=str(model2), weight=0.3, architecture="SDXL"),
+            ModelEntry(path=str(model1), weight=0.3, architecture="SDXL", index=0),
+            ModelEntry(path=str(model2), weight=0.3, architecture="SDXL", index=1),
         ]
         manifest = MergeManifest(models=models)
         
@@ -497,8 +597,8 @@ class TestValidateManifest(unittest.TestCase):
         self.test_files.extend([model1, model2])
         
         models = [
-            ModelEntry(path=str(model1), weight=0.5, architecture="SDXL"),
-            ModelEntry(path=str(model2), weight=0.5, architecture="SDXL"),
+            ModelEntry(path=str(model1), weight=0.5, architecture="SDXL", index=0),
+            ModelEntry(path=str(model2), weight=0.5, architecture="SDXL", index=1),
         ]
         manifest = MergeManifest(models=models)
         

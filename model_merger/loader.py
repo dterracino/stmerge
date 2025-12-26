@@ -12,7 +12,7 @@ from safetensors.torch import load_file
 
 from . import config
 from .console import console, print_info
-from .hasher import compute_file_hash
+from .hasher import compute_file_hash, compute_crc32
 
 
 def detect_precision(state_dict: Dict[str, torch.Tensor]) -> str:
@@ -54,12 +54,12 @@ def load_model(
     Args:
         filepath: Path to the .safetensors file
         device: Device to load tensors to ('cpu' or 'cuda')
-        compute_hash: Whether to compute SHA-256 hash (slow for large files)
+        compute_hash: Whether to compute SHA-256 and CRC32 hashes (slow for large files)
         
     Returns:
         Tuple of (state_dict, metadata)
         - state_dict: Dictionary of tensor names to tensors
-        - metadata: Dict with 'precision', 'hash' (if computed), 'filename'
+        - metadata: Dict with 'precision', 'sha256', 'crc32' (if compute_hash=True), 'filename'
         
     Raises:
         FileNotFoundError: If the file doesn't exist
@@ -86,10 +86,13 @@ def load_model(
         'precision': precision,
     }
     
-    # Optionally compute hash (slow!)
+    # Optionally compute hashes (slow!)
     if compute_hash:
-        print_info(f"Computing hash for {filepath.name}...")
-        metadata['hash'] = compute_file_hash(filepath)
+        print_info(f"Computing SHA-256 hash for {filepath.name}...")
+        metadata['sha256'] = compute_file_hash(filepath, algorithm='sha256')
+        
+        print_info(f"Computing CRC32 hash for {filepath.name}...")
+        metadata['crc32'] = compute_crc32(filepath)
     
     console.print(f"  [dim]Loaded {len(state_dict)} keys, precision: {precision}[/dim]")
     
@@ -111,7 +114,7 @@ def load_vae(
     Args:
         filepath: Path to the VAE .safetensors file
         device: Device to load tensors to ('cpu' or 'cuda')
-        compute_hash: Whether to compute SHA-256 hash
+        compute_hash: Whether to compute SHA-256 and CRC32 hashes
         
     Returns:
         Tuple of (state_dict, metadata)
@@ -140,10 +143,13 @@ def load_vae(
         'precision': precision,
     }
     
-    # Optionally compute hash
+    # Optionally compute hashes
     if compute_hash:
-        print_info(f"Computing hash for {filepath.name}...")
-        metadata['hash'] = compute_file_hash(filepath)
+        print_info(f"Computing SHA-256 hash for {filepath.name}...")
+        metadata['sha256'] = compute_file_hash(filepath, algorithm='sha256')
+        
+        print_info(f"Computing CRC32 hash for {filepath.name}...")
+        metadata['crc32'] = compute_crc32(filepath)
     
     console.print(f"  [dim]Loaded VAE with {len(state_dict)} keys, precision: {precision}[/dim]")
     

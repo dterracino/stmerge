@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 
-- **Usage Guide Generation (.usage.json)** (v0.6.0) - *See [USAGE_GUIDE.md](model_merger/USAGE_GUIDE.md)*
+- **Usage Guide Generation (.usage.json)** (v0.7.0+) - *See [USAGE_GUIDE.md](model_merger/USAGE_GUIDE.md)*
   - Automatic generation of `.usage.json` files for merged models
   - Aggregates prompting recommendations from source models
   - Optional LLM-powered extraction from CivitAI pages (if API key configured)
@@ -26,6 +26,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Batch conversion (convert entire folders at once)
 - Block-weighted merging (different weights per layer)
 - Model info command (inspect models without merging)
+
+## [0.6.1] - 2024-12-25
+
+### Added
+
+- **sd-webui-supermerger Compatible Metadata Format**
+  - New `sd_merge_recipe` metadata field containing algorithm, models with indices/weights/hashes, and VAE info
+  - New `sd_merge_models` metadata field mapping SHA256 hashes to model metadata (name, legacy_hash, architecture)
+  - Metadata format now matches sd-webui-supermerger conventions for better ecosystem compatibility
+  - Algorithm field captures merge method (`weighted_sum` or `consensus`)
+  - `consensus_exponent` included in recipe when using consensus algorithm
+  - All metadata values properly JSON-encoded for safetensors string-only constraint
+
+- **Explicit Model Index Field**
+  - `index` field added as **required** parameter in `ModelEntry` (breaking change)
+  - Index validation enforces contiguous 0-based sequences (no gaps, no duplicates)
+  - Models automatically sorted by index before merge for reproducible ordering
+  - `scan_folder()` assigns sequential indices during auto-generation
+  - Enables explicit model reordering without relying on JSON array position
+
+- **CRC32 "Legacy Hash" Support**
+  - `crc32` field added to `CachedModelInfo`, `ModelEntry`, and `VAEEntry`
+  - Loader now computes both SHA-256 and CRC32 when `compute_hash=True`
+  - CRC32 used as `legacy_hash` in `sd_merge_models` metadata for A1111 UI compatibility
+  - Falls back to `sha256[:8]` when CRC32 unavailable
+  - 8-character hexadecimal format matches Automatic1111 conventions
+
+- **Comprehensive Test Coverage**
+  - 13 new test cases for index validation, CRC32, and metadata format
+  - Tests verify duplicate/non-contiguous index rejection
+  - Tests verify automatic model sorting by index
+  - Tests verify CRC32 storage, serialization, and metadata inclusion
+  - Tests verify new sd_merge_recipe/sd_merge_models structure
+  - Tests verify algorithm and consensus_exponent capture
+
+### Changed
+
+- **Breaking**: `ModelEntry.index` is now required (no default value)
+- Updated all 391 existing tests to include required `index` parameter
+- `save_manifest_metadata()` completely rewritten for new format
+- Loader metadata return format changed from `{'hash': 'sha256'}` to `{'sha256': '...', 'crc32': '...'}`
+- Example manifest updated to show new index and crc32 fields
+
+### Fixed
+
+- Index validation prevents duplicate indices (raises ValueError)
+- Index validation prevents non-contiguous sequences like [0, 2, 5] (raises ValueError)
+- Models are now explicitly ordered by index, not implicit JSON array position
 
 ## [0.6.0] - 2024-12-24
 

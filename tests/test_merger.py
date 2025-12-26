@@ -47,7 +47,7 @@ class TestMergeModels(unittest.TestCase):
         mock_progress.return_value.__exit__ = MagicMock(return_value=False)
         
         entries = [
-            ModelEntry(path=str(model_path), weight=1.0, architecture="SDXL")
+            ModelEntry(path=str(model_path), weight=1.0, architecture="SDXL", index=0)
         ]
         
         result = merger.merge_models(entries, validate_compatibility=False)
@@ -70,8 +70,8 @@ class TestMergeModels(unittest.TestCase):
         mock_progress.return_value.__exit__ = MagicMock(return_value=False)
         
         entries = [
-            ModelEntry(path=str(model1_path), weight=0.5, architecture="SDXL"),
-            ModelEntry(path=str(model2_path), weight=0.5, architecture="SDXL"),
+            ModelEntry(path=str(model1_path), weight=0.5, architecture="SDXL", index=0),
+            ModelEntry(path=str(model2_path), weight=0.5, architecture="SDXL", index=1),
         ]
         
         result = merger.merge_models(entries, validate_compatibility=False)
@@ -100,8 +100,8 @@ class TestMergeModels(unittest.TestCase):
         
         # Use asymmetric weights
         entries = [
-            ModelEntry(path=str(model1_path), weight=0.7, architecture="SDXL"),
-            ModelEntry(path=str(model2_path), weight=0.3, architecture="SDXL"),
+            ModelEntry(path=str(model1_path), weight=0.7, architecture="SDXL", index=0),
+            ModelEntry(path=str(model2_path), weight=0.3, architecture="SDXL", index=1),
         ]
         
         result = merger.merge_models(entries, validate_compatibility=False)
@@ -125,9 +125,9 @@ class TestMergeModels(unittest.TestCase):
         mock_progress.return_value.__exit__ = MagicMock(return_value=False)
         
         entries = [
-            ModelEntry(path=str(model1_path), weight=0.33, architecture="SDXL"),
-            ModelEntry(path=str(model2_path), weight=0.33, architecture="SDXL"),
-            ModelEntry(path=str(model3_path), weight=0.34, architecture="SDXL"),
+            ModelEntry(path=str(model1_path), weight=0.33, architecture="SDXL", index=0),
+            ModelEntry(path=str(model2_path), weight=0.33, architecture="SDXL", index=1),
+            ModelEntry(path=str(model3_path), weight=0.34, architecture="SDXL", index=2),
         ]
         
         result = merger.merge_models(entries, validate_compatibility=False)
@@ -151,8 +151,8 @@ class TestMergeModels(unittest.TestCase):
         mock_progress.return_value.__exit__ = MagicMock(return_value=False)
         
         entries = [
-            ModelEntry(path=str(model1_path), weight=0.5, architecture="SDXL"),
-            ModelEntry(path=str(model2_path), weight=0.5, architecture="SDXL"),
+            ModelEntry(path=str(model1_path), weight=0.5, architecture="SDXL", index=0),
+            ModelEntry(path=str(model2_path), weight=0.5, architecture="SDXL", index=1),
         ]
         
         with self.assertRaises(ValueError) as context:
@@ -178,8 +178,8 @@ class TestMergeModels(unittest.TestCase):
         mock_progress.return_value.__exit__ = MagicMock(return_value=False)
         
         entries = [
-            ModelEntry(path=str(model1_path), weight=0.5, architecture="SDXL"),
-            ModelEntry(path=str(model2_path), weight=0.5, architecture="SDXL"),
+            ModelEntry(path=str(model1_path), weight=0.5, architecture="SDXL", index=0),
+            ModelEntry(path=str(model2_path), weight=0.5, architecture="SDXL", index=1),
         ]
         
         # Should not raise when validation is disabled

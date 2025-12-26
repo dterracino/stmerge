@@ -55,8 +55,8 @@ class TestMergeWorkflow(unittest.TestCase):
         
         # Create entries
         entries = [
-            ModelEntry(path=str(model1_path), weight=0.5, architecture="SDXL"),
-            ModelEntry(path=str(model2_path), weight=0.5, architecture="SDXL"),
+            ModelEntry(path=str(model1_path), weight=0.5, architecture="SDXL", index=0),
+            ModelEntry(path=str(model2_path), weight=0.5, architecture="SDXL", index=1),
         ]
         
         # Merge
@@ -98,8 +98,8 @@ class TestMergeWorkflow(unittest.TestCase):
         
         # Merge
         entries = [
-            ModelEntry(path=str(model1_path), weight=0.5, architecture="SDXL"),
-            ModelEntry(path=str(model2_path), weight=0.5, architecture="SDXL"),
+            ModelEntry(path=str(model1_path), weight=0.5, architecture="SDXL", index=0),
+            ModelEntry(path=str(model2_path), weight=0.5, architecture="SDXL", index=1),
         ]
         merged = merger.merge_models(entries, validate_compatibility=False)
         
@@ -128,8 +128,8 @@ class TestManifestWorkflow(unittest.TestCase):
         """Test that manifest survives save/load cycle."""
         # Create manifest
         models = [
-            ModelEntry(path="model1.safetensors", weight=0.5, architecture="SDXL", sha256="abc123"),
-            ModelEntry(path="model2.safetensors", weight=0.5, architecture="SDXL"),
+            ModelEntry(path="model1.safetensors", weight=0.5, architecture="SDXL", index=0, sha256="abc123"),
+            ModelEntry(path="model2.safetensors", weight=0.5, architecture="SDXL", index=1),
         ]
         original = MergeManifest(
             models=models,
@@ -159,8 +159,8 @@ class TestManifestWorkflow(unittest.TestCase):
         """Test that validation catches common issues."""
         # Create manifest with missing files
         models = [
-            ModelEntry(path="nonexistent1.safetensors", weight=0.5, architecture="SDXL"),
-            ModelEntry(path="nonexistent2.safetensors", weight=0.3, architecture="SDXL"),
+            ModelEntry(path="nonexistent1.safetensors", weight=0.5, architecture="SDXL", index=0),
+            ModelEntry(path="nonexistent2.safetensors", weight=0.3, architecture="SDXL", index=1),
         ]
         m = MergeManifest(models=models)
         
@@ -422,8 +422,8 @@ class TestConsensusMergeIntegration(unittest.TestCase):
         self.test_files.extend([model1_path, model2_path])
         
         entries = [
-            ModelEntry(path=str(model1_path), weight=0.5, architecture="SDXL"),
-            ModelEntry(path=str(model2_path), weight=0.5, architecture="SDXL")
+            ModelEntry(path=str(model1_path), weight=0.5, architecture="SDXL", index=0),
+            ModelEntry(path=str(model2_path), weight=0.5, architecture="SDXL", index=1)
         ]
         
         # Merge with weighted sum
@@ -484,10 +484,10 @@ class TestConsensusMergeIntegration(unittest.TestCase):
         self.test_files.extend([model1_path, model2_path, model3_path, model4_path])
         
         entries = [
-            ModelEntry(path=str(model1_path), weight=0.25, architecture="SDXL"),
-            ModelEntry(path=str(model2_path), weight=0.25, architecture="SDXL"),
-            ModelEntry(path=str(model3_path), weight=0.25, architecture="SDXL"),
-            ModelEntry(path=str(model4_path), weight=0.25, architecture="SDXL")
+            ModelEntry(path=str(model1_path), weight=0.25, architecture="SDXL", index=0),
+            ModelEntry(path=str(model2_path), weight=0.25, architecture="SDXL", index=1),
+            ModelEntry(path=str(model3_path), weight=0.25, architecture="SDXL", index=2),
+            ModelEntry(path=str(model4_path), weight=0.25, architecture="SDXL", index=3)
         ]
         
         # Merge with consensus (exponent should have effect with 4+ models)

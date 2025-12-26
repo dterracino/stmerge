@@ -273,7 +273,7 @@ class TestCmdMerge(unittest.TestCase):
     ):
         """Test that validation errors cause merge to fail."""
         # Create manifest with missing model
-        models = [ModelEntry(path="missing.safetensors", weight=1.0, architecture="SDXL")]
+        models = [ModelEntry(path="missing.safetensors", weight=1.0, architecture="SDXL", index=0)]
         mock_load.return_value = MergeManifest(models=models)
         mock_validate.return_value = ["Model file not found: missing.safetensors"]
         
@@ -588,7 +588,7 @@ class TestCliOverrides(unittest.TestCase):
         mock_success, mock_console, mock_summary, mock_header
     ):
         """Test that --overwrite flag overrides manifest setting."""
-        models = [ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL")]
+        models = [ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL", index=0)]
         manifest = MergeManifest(models=models, overwrite=False)
         mock_load.return_value = manifest
         mock_validate.return_value = ["Model file not found"]  # Force early exit
@@ -627,7 +627,7 @@ class TestCliOverrides(unittest.TestCase):
         # Mock check_cuda_availability to return the requested device
         mock_cuda_check.side_effect = lambda x: x
         
-        models = [ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL")]
+        models = [ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL", index=0)]
         manifest = MergeManifest(models=models, device='cpu')
         mock_load.return_value = manifest
         mock_validate.return_value = ["Model file not found"]
@@ -661,7 +661,7 @@ class TestCliOverrides(unittest.TestCase):
         mock_success, mock_console, mock_summary, mock_header
     ):
         """Test that --no-prune flag overrides manifest setting."""
-        models = [ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL")]
+        models = [ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL", index=0)]
         manifest = MergeManifest(models=models, prune=True)
         mock_load.return_value = manifest
         mock_validate.return_value = ["Model file not found"]

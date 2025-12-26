@@ -168,40 +168,72 @@ def save_manifest_metadata(
     merged_precision: str
 ) -> Dict[str, str]:
     """
-    Generate metadata for the merged model from the manifest.
+    Generate metadata for the merged model in SD-WebUI-compatible format.
     
-    This creates a record of how the model was created - which source
-    models, their weights, etc. Useful for reproducibility and tracking.
+    Follows sd-webui-supermerger conventions with our extensions:
+    - sd_merge_recipe: Algorithm, parameters, and model references
+    - sd_merge_models: SHA256 hash -> model metadata mapping
     
     Args:
         manifest: The MergeManifest used for this merge
         merged_precision: The final precision of the merged model
         
     Returns:
-        Dictionary of metadata (all string values)
+        Dictionary of metadata (all string values for safetensors compatibility)
     """
-    metadata = {
-        'merge_tool': 'model_merger',
-        'merge_precision': merged_precision,
-        'num_models': str(len(manifest.models)),
-        'output_precision_setting': manifest.output_precision,
+    from datetime import datetime
+    import json
+    from pathlib import Path
+    
+    # Build the models dictionary (SHA256 -> metadata mapping)
+    # This allows hash-based lookups and deduplication
+    models_dict = {}
+    
+    for model in manifest.models:
+        if model.sha256:
+            models_dict[model.sha256] = {
+                'name': Path(model.path).stem,  # Filename without extension
+                'legacy_hash': model.crc32 if model.crc32 else model.sha256[:8],  # CRC32 or fallback
+                'architecture': model.architecture
+            }
+    
+    # Build the merge recipe
+    # Sort models by index to ensure correct order
+    sorted_models = sorted(manifest.models, key=lambda m: m.index)
+    
+    recipe = {
+        'type': 'model_merger',
+        'algorithm': manifest.merge_method,  # 'weighted_sum' or 'consensus'
+        'models': [
+            {
+                'hash': model.sha256 if model.sha256 else 'unknown',
+                'weight': model.weight,
+                'index': model.index  # Explicit merge order
+            }
+            for model in sorted_models
+        ]
     }
     
-    # Add model info
-    for idx, model in enumerate(manifest.models, start=1):
-        prefix = f'model_{idx}_'
-        metadata[prefix + 'path'] = model.path
-        metadata[prefix + 'weight'] = str(model.weight)
-        metadata[prefix + 'architecture'] = model.architecture
-        if model.sha256:
-            metadata[prefix + 'sha256'] = model.sha256
+    # Add algorithm-specific parameters
+    if manifest.merge_method == config.MERGE_METHOD_CONSENSUS:
+        recipe['consensus_exponent'] = manifest.consensus_exponent
     
-    # Add VAE info if present
-    if manifest.vae:
-        metadata['vae_path'] = manifest.vae.path
-        if manifest.vae.sha256:
-            metadata['vae_sha256'] = manifest.vae.sha256
-        if manifest.vae.precision_detected:
-            metadata['vae_precision'] = manifest.vae.precision_detected
+    # Add VAE to recipe if present (our extension - doesn't break compatibility)
+    if manifest.vae and manifest.vae.sha256:
+        recipe['vae'] = {
+            'hash': manifest.vae.sha256,
+            'legacy_hash': manifest.vae.crc32 if manifest.vae.crc32 else manifest.vae.sha256[:8],
+            'name': Path(manifest.vae.path).stem
+        }
+    
+    # Safetensors metadata (all values must be JSON strings!)
+    metadata = {
+        'sd_merge_recipe': json.dumps(recipe, indent=2),
+        'sd_merge_models': json.dumps(models_dict, indent=2),
+        'merge_tool': 'model_merger',
+        'merge_tool_version': '1.0.0',
+        'merge_timestamp': datetime.utcnow().isoformat() + 'Z',
+        'merge_precision': merged_precision,
+    }
     
     return metadata

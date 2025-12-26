@@ -197,12 +197,14 @@ class TestSaveManifestMetadata(unittest.TestCase):
                 path="model1.safetensors",
                 weight=0.5,
                 architecture="SDXL",
+                index=0,
                 sha256="abc123"
             ),
             ModelEntry(
                 path="model2.safetensors",
                 weight=0.5,
                 architecture="SDXL",
+                index=1,
             ),
         ]
         manifest = MergeManifest(models=models)
@@ -211,14 +213,14 @@ class TestSaveManifestMetadata(unittest.TestCase):
         
         self.assertEqual(result['merge_tool'], 'model_merger')
         self.assertEqual(result['merge_precision'], 'fp16')
-        self.assertEqual(result['num_models'], '2')
-        self.assertEqual(result['model_1_path'], 'model1.safetensors')
-        self.assertEqual(result['model_1_weight'], '0.5')
+        # New format uses JSON-encoded sd_merge_recipe and sd_merge_models
+        self.assertIn('sd_merge_recipe', result)
+        self.assertIn('sd_merge_models', result)
     
     def test_metadata_with_vae(self):
         """Test that VAE info is included in metadata."""
         models = [
-            ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL")
+            ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL", index=0)
         ]
         vae = VAEEntry(
             path="vae.safetensors",
@@ -229,26 +231,30 @@ class TestSaveManifestMetadata(unittest.TestCase):
         
         result = saver.save_manifest_metadata(manifest, "fp32")
         
-        self.assertEqual(result['vae_path'], 'vae.safetensors')
-        self.assertEqual(result['vae_sha256'], 'vae_hash_123')
-        self.assertEqual(result['vae_precision'], 'fp16')
+        # VAE info is now in sd_merge_recipe, not top-level
+        self.assertIn('sd_merge_recipe', result)
+        import json
+        recipe = json.loads(result['sd_merge_recipe'])
+        self.assertIn('vae', recipe)
     
     def test_metadata_without_vae(self):
         """Test that metadata is valid without VAE."""
         models = [
-            ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL")
+            ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL", index=0)
         ]
         manifest = MergeManifest(models=models)
         
         result = saver.save_manifest_metadata(manifest, "fp32")
         
-        self.assertNotIn('vae_path', result)
-        self.assertNotIn('vae_sha256', result)
+        # VAE is no longer a top-level key in new format
+        import json
+        recipe = json.loads(result['sd_merge_recipe'])
+        self.assertNotIn('vae', recipe)
     
     def test_all_metadata_values_are_strings(self):
         """Test that all metadata values are strings."""
         models = [
-            ModelEntry(path="model.safetensors", weight=0.5, architecture="SDXL")
+            ModelEntry(path="model.safetensors", weight=0.5, architecture="SDXL", index=0)
         ]
         manifest = MergeManifest(models=models)
         
@@ -264,6 +270,7 @@ class TestSaveManifestMetadata(unittest.TestCase):
                 path="model.safetensors",
                 weight=1.0,
                 architecture="SDXL",
+                index=0,
                 sha256="full_hash_here"
             )
         ]
@@ -271,7 +278,10 @@ class TestSaveManifestMetadata(unittest.TestCase):
         
         result = saver.save_manifest_metadata(manifest, "fp32")
         
-        self.assertEqual(result['model_1_sha256'], 'full_hash_here')
+        # Hash is now in sd_merge_models mapping
+        import json
+        models_dict = json.loads(result['sd_merge_models'])
+        self.assertIn('full_hash_here', models_dict)
     
     def test_model_sha256_excluded_when_none(self):
         """Test that model SHA256 is excluded when None."""
@@ -280,6 +290,7 @@ class TestSaveManifestMetadata(unittest.TestCase):
                 path="model.safetensors",
                 weight=1.0,
                 architecture="SDXL",
+                index=0,
                 sha256=None
             )
         ]
@@ -287,7 +298,121 @@ class TestSaveManifestMetadata(unittest.TestCase):
         
         result = saver.save_manifest_metadata(manifest, "fp32")
         
-        self.assertNotIn('model_1_sha256', result)
+        # 'unknown' is used when no hash is available
+        import json
+        recipe = json.loads(result['sd_merge_recipe'])
+        self.assertEqual(recipe['models'][0]['hash'], 'unknown')
+    
+    def test_metadata_includes_crc32_legacy_hash(self):
+        """Test that CRC32 is used for legacy_hash in sd_merge_models."""
+        models = [
+            ModelEntry(
+                path="model.safetensors",
+                weight=1.0,
+                architecture="SDXL",
+                index=0,
+                sha256="abc123" * 10 + "abcd",  # 64 chars
+                crc32="12345678"
+            )
+        ]
+        manifest = MergeManifest(models=models)
+        
+        result = saver.save_manifest_metadata(manifest, "fp32")
+        
+        import json
+        models_dict = json.loads(result['sd_merge_models'])
+        model_info = models_dict["abc123" * 10 + "abcd"]
+        self.assertEqual(model_info['legacy_hash'], "12345678")
+    
+    def test_metadata_legacy_hash_fallback_to_sha256(self):
+        """Test that legacy_hash falls back to sha256[:8] when CRC32 is None."""
+        models = [
+            ModelEntry(
+                path="model.safetensors",
+                weight=1.0,
+                architecture="SDXL",
+                index=0,
+                sha256="abcdef12" * 8,  # 64 chars
+                crc32=None
+            )
+        ]
+        manifest = MergeManifest(models=models)
+        
+        result = saver.save_manifest_metadata(manifest, "fp32")
+        
+        import json
+        models_dict = json.loads(result['sd_merge_models'])
+        model_info = models_dict["abcdef12" * 8]
+        # Should use first 8 chars of SHA256
+        self.assertEqual(model_info['legacy_hash'], "abcdef12")
+    
+    def test_metadata_includes_model_indices(self):
+        """Test that model indices are included in sd_merge_recipe."""
+        models = [
+            ModelEntry(path="model1.safetensors", weight=0.3, architecture="SDXL", index=0, sha256="hash1" + "0" * 59),
+            ModelEntry(path="model2.safetensors", weight=0.3, architecture="SDXL", index=1, sha256="hash2" + "0" * 59),
+            ModelEntry(path="model3.safetensors", weight=0.4, architecture="SDXL", index=2, sha256="hash3" + "0" * 59)
+        ]
+        manifest = MergeManifest(models=models)
+        
+        result = saver.save_manifest_metadata(manifest, "fp32")
+        
+        import json
+        recipe = json.loads(result['sd_merge_recipe'])
+        self.assertEqual(recipe['models'][0]['index'], 0)
+        self.assertEqual(recipe['models'][1]['index'], 1)
+        self.assertEqual(recipe['models'][2]['index'], 2)
+    
+    def test_metadata_includes_algorithm_weighted_sum(self):
+        """Test that algorithm defaults to weighted_sum."""
+        models = [
+            ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL", index=0)
+        ]
+        manifest = MergeManifest(models=models, merge_method='weighted_sum')
+        
+        result = saver.save_manifest_metadata(manifest, "fp32")
+        
+        import json
+        recipe = json.loads(result['sd_merge_recipe'])
+        self.assertEqual(recipe['algorithm'], 'weighted_sum')
+    
+    def test_metadata_includes_algorithm_consensus(self):
+        """Test that consensus algorithm is captured."""
+        models = [
+            ModelEntry(path="model.safetensors", weight=0.5, architecture="SDXL", index=0)
+        ]
+        manifest = MergeManifest(models=models, merge_method='consensus', consensus_exponent=4)
+        
+        result = saver.save_manifest_metadata(manifest, "fp32")
+        
+        import json
+        recipe = json.loads(result['sd_merge_recipe'])
+        self.assertEqual(recipe['algorithm'], 'consensus')
+        self.assertEqual(recipe['consensus_exponent'], 4)
+    
+    def test_metadata_roundtrip_crc32(self):
+        """Test that CRC32 survives save/load through metadata."""
+        models = [
+            ModelEntry(
+                path="model.safetensors",
+                weight=1.0,
+                architecture="Pony",
+                index=0,
+                sha256="fedcba98" * 8,
+                crc32="abcd1234"
+            )
+        ]
+        manifest = MergeManifest(models=models)
+        
+        result = saver.save_manifest_metadata(manifest, "fp16")
+        
+        # Verify CRC32 is in the output
+        import json
+        models_dict = json.loads(result['sd_merge_models'])
+        model_info = models_dict["fedcba98" * 8]
+        self.assertEqual(model_info['legacy_hash'], "abcd1234")
+        self.assertEqual(model_info['name'], "model")
+        self.assertEqual(model_info['architecture'], "Pony")
 
 
 if __name__ == '__main__':

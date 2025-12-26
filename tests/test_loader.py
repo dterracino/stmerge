@@ -208,7 +208,8 @@ class TestLoadModel(unittest.TestCase):
         
         state_dict, metadata = loader.load_model(model_path, compute_hash=True)
         
-        self.assertIn('hash', metadata)
+        self.assertIn('sha256', metadata)
+        self.assertIn('crc32', metadata)
         mock_hash.assert_called_once()
 
 

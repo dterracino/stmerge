@@ -51,6 +51,7 @@ class CachedModelInfo:
     last_modified: str  # ISO 8601 format
     precision: Optional[str] = None  # 'fp16' or 'fp32'
     architecture: Optional[str] = None
+    crc32: Optional[str] = None  # 8-character hex CRC32 (for legacy A1111 hash)
     civitai: Optional[CivitAIMetadata] = None
     cached_at: str = ""  # ISO 8601 format
     

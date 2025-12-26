@@ -4,34 +4,43 @@
       "path": "/path/to/pony_realistic_v2.safetensors",
       "weight": 0.25,
       "architecture": "Pony",
+      "index": 0,
       "precision_detected": "fp16",
-      "sha256": "a1b2c3d4e5f6789..."
+      "sha256": "a1b2c3d4e5f6789...",
+      "crc32": "12345678"
     },
     {
       "path": "/path/to/pony_furry_enhanced.safetensors",
       "weight": 0.25,
       "architecture": "Pony",
+      "index": 1,
       "precision_detected": "fp16",
-      "sha256": "b2c3d4e5f6789a1..."
+      "sha256": "b2c3d4e5f6789a1...",
+      "crc32": "23456789"
     },
     {
       "path": "/path/to/pony_semi_realistic.safetensors",
       "weight": 0.25,
       "architecture": "Pony",
+      "index": 2,
       "precision_detected": "fp16",
-      "sha256": "c3d4e5f6789a1b2..."
+      "sha256": "c3d4e5f6789a1b2...",
+      "crc32": "34567890"
     },
     {
       "path": "/path/to/pony_artistic_style.safetensors",
       "weight": 0.25,
       "architecture": "Pony",
+      "index": 3,
       "precision_detected": "fp16",
-      "sha256": "d4e5f6789a1b2c3..."
+      "sha256": "d4e5f6789a1b2c3...",
+      "crc32": "45678901"
     }
   ],
   "vae": {
     "path": "/path/to/sdxl_vae.safetensors",
     "sha256": "e5f6789a1b2c3d4...",
+    "crc32": "56789012",
     "precision_detected": "fp16"
   },
   "output": {

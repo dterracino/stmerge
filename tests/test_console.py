@@ -111,13 +111,15 @@ class TestPrintModelsTable(unittest.TestCase):
                 path="/path/to/model1.safetensors",
                 weight=0.5,
                 architecture="SDXL",
-                precision_detected="fp16"
+                precision_detected="fp16",
+                index=0
             ),
             ModelEntry(
                 path="/path/to/model2.safetensors",
                 weight=0.5,
                 architecture="SDXL",
-                precision_detected="fp16"
+                precision_detected="fp16",
+                index=1
             ),
         ]
         
@@ -133,6 +135,7 @@ class TestPrintModelsTable(unittest.TestCase):
                 path="/very/long/path/to/a/model/with/extremely/long/filename/that/should/be/truncated.safetensors",
                 weight=0.5,
                 architecture="SDXL",
+                index=0
             ),
         ]
         
@@ -151,7 +154,7 @@ class TestPrintManifestSummary(unittest.TestCase):
     def test_print_manifest_summary(self, mock_table, mock_section, mock_print):
         """Test that print_manifest_summary displays manifest info."""
         models = [
-            ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL")
+            ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL", index=0)
         ]
         manifest = MergeManifest(
             models=models,
@@ -171,7 +174,7 @@ class TestPrintManifestSummary(unittest.TestCase):
     def test_print_manifest_summary_with_vae(self, mock_table, mock_section, mock_print):
         """Test manifest summary with VAE."""
         models = [
-            ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL")
+            ModelEntry(path="model.safetensors", weight=1.0, architecture="SDXL", index=0)
         ]
         manifest = MergeManifest(
             models=models,
