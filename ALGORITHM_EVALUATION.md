@@ -22,6 +22,17 @@ This document evaluates the existing merging algorithms in **stmerge**, compares
 5. [Recommended New Algorithms](#5-recommended-new-algorithms)
 6. [Implementation Priority](#6-implementation-priority)
 7. [Summary](#7-summary)
+   - [What stmerge does well](#what-stmerge-does-well)
+   - [Critical gaps](#critical-gaps)
+   - [Recommended immediate actions](#recommended-immediate-actions)
+   - [Hardware Quick Reference](#hardware-quick-reference)
+8. [Hardware Considerations](#8-hardware-considerations)
+   - [Hardware Target](#81-hardware-target)
+   - [Algorithm Hardware Impact Summary](#82-algorithm-hardware-impact-summary)
+   - [RAM Requirements by System Configuration](#83-ram-requirements-by-system-configuration)
+   - [GPU Acceleration](#84-gpu-acceleration)
+   - [CPU vs GPU Decision Guide](#85-cpu-vs-gpu-decision-guide)
+   - [Recommendations](#86-recommendations)
 
 ---
 
@@ -75,6 +86,22 @@ Only the accumulator and one loaded model live in RAM at any time, making it pos
 | **No redundancy elimination** | Redundant or noise-level deltas from each model add up and can introduce drift |
 | **User must know weights** | The user is responsible for choosing weights that produce coherent results; no guidance or validation is provided |
 
+#### Hardware Impact
+
+| Metric | Value |
+|---|---|
+| **Peak system RAM** | fp32 accumulator (~13 GB for SDXL) + one fp16 loaded model (~6.5 GB) ≈ **~19.5 GB** peak |
+| **N-model scaling** | Constant — accumulator size never grows with N; only 2 models occupy RAM at any point |
+| **VRAM usage** | None by default; all computation runs on CPU |
+| **GPU acceleration benefit** | ❌ Minimal — the operation is memory-bandwidth bound (load → multiply-add → store). GPU parallelism is rarely the bottleneck |
+| **Primary bottleneck** | Disk I/O and RAM bus bandwidth while streaming each model's tensors sequentially |
+
+**Practical notes for 8 × SDXL on a desktop:**
+
+- **16 GB RAM:** Tight — the ~19.5 GB peak exceeds physical capacity by ~3.5 GB. Success depends on OS memory compression (zram/zswap); swap space can bridge the gap but will significantly degrade performance during the disk-I/O-heavy model-loading phases.
+- **32 GB RAM:** Comfortable — ~19.5 GB peak leaves ~12 GB headroom.
+- **GPU offload:** Adds VRAM pressure with negligible speed benefit. CPU is the recommended execution device for this algorithm; the bottleneck is never the arithmetic unit.
+
 ---
 
 ### 1.2 Consensus Merge (Inverse Distance Weighting)
@@ -104,6 +131,36 @@ def compute_consensus_weights(values, exponent=4):
 
 The result is that parameter values shared by the majority of models receive high weight, while lone outlier values are suppressed exponentially.
 
+#### Original Design Purpose
+
+The consensus algorithm was specifically designed to solve the **tournament-style merging dilution** problem inherent in tools that merge models two or three at a time.
+
+**The tournament dilution problem:**
+
+In naïve sequential merging, you repeatedly combine pairs — and each earlier model gets geometrically diluted with every additional round:
+
+```
+Round 1: A + B → AB         (A: 50%,     B: 50%)
+Round 2: AB + C → ABC       (A: 25%,     B: 25%,    C: 50%)
+Round 3: ABC + D → ABCD     (A: 12.5%,   B: 12.5%,  C: 25%,   D: 50%)
+Round 4: ABCD + E → ABCDE   (A: 6.25%,   B: 6.25%,  C: 12.5%, D: 25%,  E: 50%)
+Round 5: … + F              (A: 3.125%,  …                              F: 50%)
+Round 6: … + G              (A: 1.5625%, …                              G: 50%)
+Round 7: … + H              (A: ~0.78%,  …                              H: 50%)
+```
+
+In an 8-model sequential merge, model A's contribution halves every round: `0.5^7 ≈ 0.78%`. With 8 models merged in a binary tournament, the **first model contributes only ~0.8% of its original weight** while the last model contributes 50%. The result is overwhelmingly dominated by whichever model happens to enter last in the merge sequence, regardless of the user's intent.
+
+**The consensus solution:**
+
+Rather than merging round by round, the consensus algorithm ingests **all N models simultaneously** and computes adaptive per-element weights based on pairwise distances. Every model has equal standing from the start:
+
+- No tournament rounds, no ordering bias.
+- Each model's contribution to any given parameter is determined by how well that model's value agrees with the rest of the ensemble — not by the sequence in which it was processed.
+- User-defined weights (see §4.2.2) can further bias contribution toward preferred models without introducing the geometric dilution of sequential merging.
+
+This makes the consensus algorithm uniquely suited to **merging 8 or more models in a single pass** with equal (or explicitly weighted) contributions from every model — something no sequential pairwise approach can achieve.
+
 #### Strengths
 
 | Strength | Detail |
@@ -123,6 +180,25 @@ The result is that parameter values shared by the majority of models receive hig
 | **Memory pressure for large tensors** | The `stacked` tensor holding all N model copies of a single tensor layer lives in memory during computation |
 | **Consensus ≠ better** | If models intentionally diverge in a layer (style specialisation), forcing them toward consensus destroys the diversity that made each model valuable |
 | **Python-level loop** | The `for elem_idx in range(num_elements)` loop is unbatched Python; even modest tensors with millions of parameters are extremely slow |
+
+#### Hardware Impact
+
+| Metric | Value |
+|---|---|
+| **Peak system RAM (current implementation)** | All N models must be resident simultaneously for the per-layer stacking step: **~N × model size**. For 8 × SDXL ≈ **~52 GB** fp16 — exceeds typical desktop RAM |
+| **Peak system RAM (vectorized, §4.2.1)** | Still requires N × model size for the stacked tensors, *plus* an intermediate `(N × N × E)` pairwise distance matrix (a compute optimization, not a memory reduction). For a 512×512 conv layer at N=8: `8 × 8 × 262,144 × 4 B ≈ 536 MB` additional per layer — manageable when processing one layer at a time, but the vectorized form requires *more* total RAM than the naïve Python-loop version. Both require per-layer chunking on systems with less than 64 GB RAM. |
+| **N-model scaling** | Linear with N — every additional model adds one full model to the RAM requirement |
+| **VRAM usage** | Significant if GPU is used for vectorized ops; per-layer stacks for most SDXL layers fit within 8–16 GB VRAM |
+| **GPU acceleration benefit** | ✅ Significant — once vectorized (§4.2.1), the dense `(N × N × E)` distance matrix computation and weighted sum map excellently to GPU SIMD parallelism; expected **10–50×** speedup vs. CPU |
+| **Primary bottleneck** | RAM capacity (holding all N models simultaneously) and memory bandwidth for the `(N × N × E)` matrix operations |
+
+**Practical notes for 8 × SDXL on a desktop:**
+
+- **16 GB RAM:** Not feasible without streaming layer-by-layer and immediately discarding model tensors after extracting each slice.
+- **32 GB RAM:** Marginal — 8 × 6.5 GB = 52 GB fp16 exceeds capacity. Chunked layer-by-layer processing is mandatory, loading and unloading each model's per-layer slice as needed.
+- **64 GB+ RAM:** Comfortable for the vectorized implementation with all models resident.
+- **GPU (8–16 GB VRAM):** Provides meaningful acceleration once the Python loop is replaced (§4.2.1); most individual SDXL layers fit within GPU VRAM for per-layer batch processing.
+- **This algorithm has the highest RAM requirement of all algorithms in stmerge.** The combination of all-models-in-memory and the large intermediate distance matrix makes it the most memory-intensive option by a significant margin.
 
 ---
 
@@ -164,6 +240,22 @@ where θ = arccos(q₀ · q₁ / (‖q₀‖ · ‖q₁‖))
 
 **Community adoption:** Used in many popular merge GUIs (Supermerger, sd-meh) precisely because it produces cleaner blends for style-heavy model pairs.
 
+#### Hardware Impact
+
+| Metric | Value |
+|---|---|
+| **Peak system RAM** | Both models loaded in fp32 simultaneously: **~26 GB** for two SDXL models (~13 GB each) |
+| **N-model scaling** | Pairwise by nature — iterated SLERP for N > 2 requires additional passes, keeping peak RAM at ~2× model size per pass |
+| **VRAM usage** | Optional; GPU can hold both fp16 models (~13 GB VRAM combined) for 8+ GB GPU acceleration |
+| **GPU acceleration benefit** | ⚠️ Moderate — the `arccos` and `sin` trigonometric operations benefit from GPU parallelism, but memory bandwidth loading both fp32 models dominates runtime |
+| **Primary bottleneck** | Loading and holding two full fp32 models simultaneously; trigonometric function overhead is secondary |
+
+**Practical notes for two SDXL models on a desktop:**
+
+- **16 GB RAM:** Tight — two fp32 SDXL models ≈ 26 GB. Requires careful streaming (cast one tensor at a time to fp32, compute SLERP, write output, free) to stay within limits.
+- **32 GB RAM:** Comfortable — ~26 GB peak with ~6 GB headroom.
+- **GPU (8+ GB VRAM):** Useful for the trigonometric math; both models in fp16 (~13 GB combined) can be held on a 16+ GB GPU. On a 24 GB GPU the full fp16 merge stays resident throughout.
+
 ---
 
 ### 2.3 TIES – Trim, Elect Sign & Merge
@@ -193,6 +285,23 @@ result = θ_base + mean( Δθ_i[k] for i where sign(Δθ_i[k]) == sign_elected[k
 
 **Limitation:** Requires access to the original base model checkpoint. The deltas must be computed before merging, which adds a preprocessing step and extra disk I/O. Also, the trimming threshold τ is a hyperparameter that requires tuning.
 
+#### Hardware Impact
+
+| Metric | Value |
+|---|---|
+| **Peak system RAM (naïve)** | Base model + all N task vectors resident simultaneously: **(N+2) × model size**. For 8 × SDXL ≈ **~65 GB** |
+| **Peak system RAM (streaming)** | Base model (resident throughout) + one delta computed and accumulated at a time: **~3 × model size ≈ ~20 GB** for SDXL |
+| **N-model scaling** | Constant peak RAM with streaming regardless of N |
+| **VRAM usage** | Optional; delta computation and sign-vote operations are amenable to GPU batching |
+| **GPU acceleration benefit** | ⚠️ Moderate — sign-vote weighted averaging and masked accumulation map well to GPU tensor ops; the disk I/O for the extra base-model pass dominates total elapsed time |
+| **Primary bottleneck** | Disk I/O: must read the base model once plus all N fine-tuned models; the trim and sign-vote steps are computationally cheap by comparison |
+
+**Practical notes for 8 × SDXL on a desktop:**
+
+- **16 GB RAM:** Feasible only with a streaming implementation (compute and discard each delta immediately after accumulating the sign-vote contribution).
+- **32 GB RAM:** Comfortable with streaming (~20 GB peak). The naïve all-deltas-in-memory approach requires 64+ GB.
+- The base model checkpoint (~6.5 GB fp16) must remain loaded throughout the entire merge; all fine-tuned models are streamed one at a time on top.
+
 ---
 
 ### 2.4 DARE – Drop And REscale
@@ -219,6 +328,22 @@ result = θ_base + Σ (w_i × Δθ_i_dare)
 - Particularly effective when the fine-tunes are from the same base model and cover different but potentially overlapping capabilities.
 
 **Limitation:** Requires the base model. Introduces randomness (though a seed can make it reproducible). The drop probability `p` is another hyperparameter (typically 0.9 for language models).
+
+#### Hardware Impact
+
+| Metric | Value |
+|---|---|
+| **Peak system RAM** | Identical profile to TIES with streaming: base model resident + one sparsified delta at a time ≈ **~3 × model size ≈ ~20 GB** for SDXL |
+| **N-model scaling** | Constant peak RAM with streaming regardless of N |
+| **VRAM usage** | Same as TIES; the Bernoulli mask and rescaling add negligible memory on top |
+| **GPU acceleration benefit** | ⚠️ Moderate — `torch.bernoulli()` sampling and element-wise masking are GPU-friendly; benefit mirrors TIES |
+| **Primary bottleneck** | Same as TIES: base model disk I/O + N model passes; the drop-and-rescale step is nearly free in both compute and memory |
+
+**Practical notes for 8 × SDXL on a desktop:**
+
+- Same RAM profile as TIES: streaming implementation keeps peak at ~20 GB, fitting comfortably in 32 GB.
+- The sparsification mask tensor is the same size as one delta (~6.5 GB fp16) and is held only briefly before the delta is accumulated and discarded.
+- Setting `dare_seed` ensures bitwise-reproducible results with no change to the memory profile.
 
 ---
 
@@ -250,6 +375,22 @@ No arithmetic is performed on the weights; layers are just copied verbatim into 
 - No smooth blending; it's all-or-nothing per layer.
 - Cannot be done in the current stmerge architecture without loading entire models and re-assembling the state dict layer by layer.
 
+#### Hardware Impact
+
+| Metric | Value |
+|---|---|
+| **Peak system RAM** | ~2 × model size fp16 ≈ **~13 GB** (one source model + the output state dict being assembled). Only models referenced by active recipe steps need to be resident simultaneously |
+| **N-model scaling** | Source models can be loaded and unloaded per recipe step; peak RAM is determined by the maximum number of distinct source models needed at the same time (usually 1–2) |
+| **VRAM usage** | None required — the operation is a pure memory copy with no arithmetic |
+| **GPU acceleration benefit** | ❌ Minimal — layer copying is a memory-to-memory transfer with no floating-point computation; GPU provides no advantage |
+| **Primary bottleneck** | Disk I/O to read and slice the relevant layer groups from each source checkpoint |
+
+**Practical notes for 8 × SDXL on a desktop:**
+
+- **16 GB RAM:** Feasible — only one source model (~6.5 GB fp16) plus the output dict (~6.5 GB fp16) need to be in memory at any time.
+- **GPU:** Not beneficial for this operation; all work is CPU-side memory management.
+- The most RAM-efficient multi-source algorithm when the recipe references at most one or two distinct source models per step.
+
 ---
 
 ## 3. Comparison Matrix
@@ -268,6 +409,8 @@ No arithmetic is performed on the weights; layers are just copied verbatim into 
 | Preserves layer identity | ❌ No | ❌ No | ❌ No | ❌ No | ❌ No | ❌ No | ✅ Yes |
 | Deterministic | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ❌ (random) | ✅ Yes |
 | Implementation complexity | ⭐ Simple | ⭐⭐⭐ Complex | ⭐ Simple | ⭐⭐ Moderate | ⭐⭐⭐ Complex | ⭐⭐ Moderate | ⭐⭐ Moderate |
+| **Peak system RAM** (8 × SDXL) | ~19.5 GB | ~52 GB | ~19.5 GB (2-model fp16, same as Weighted Sum; ~26 GB in fp32) | ~26 GB (2-model fp32) | ~20 GB (streaming) | ~20 GB (streaming) | ~13 GB (fp16) |
+| **GPU acceleration benefit** | ❌ Minimal | ✅ Significant | ❌ Minimal | ⚠️ Moderate | ⚠️ Moderate | ⚠️ Moderate | ❌ Minimal |
 
 ---
 
@@ -604,6 +747,23 @@ def _median_merge(model_entries, device='cpu'):
 
 This is O(N log N) per element vs O(N²) for consensus, and requires no exponent hyperparameter.
 
+#### Hardware Impact
+
+| Metric | Value |
+|---|---|
+| **Peak system RAM** | All N models must be stacked in memory simultaneously: **N × model size**. For 8 × SDXL ≈ **~52 GB** fp16 |
+| **N-model scaling** | Linear with N — every additional model adds one full model worth of RAM |
+| **VRAM usage** | High if GPU is used for the sort; an 8-model SDXL layer stack can exceed GPU VRAM — process one layer at a time |
+| **GPU acceleration benefit** | ✅ Significant — `torch.median()` along the model dimension is highly parallelizable; GPU can accelerate the sort-based median by 10–20× vs. CPU for large tensors |
+| **Primary bottleneck** | RAM capacity: holding all N models simultaneously is the dominant constraint; median computation (O(N log N) sort per element) is fast once data is resident |
+
+**Practical notes for 8 × SDXL on a desktop:**
+
+- **16 GB RAM:** Not feasible without chunking — load one tensor key from all N models, compute the median for that key, discard all per-model slices before loading the next key.
+- **32 GB RAM:** Possible with careful chunked streaming (process one tensor key group at a time).
+- **GPU (16+ GB VRAM):** Can accelerate per-layer median when layers are processed individually; no GPU can hold all 8 SDXL models simultaneously (~52 GB fp16).
+- Weighted median (user-defined per-model weights) requires an O(N log N) weighted sort per element — moderately more expensive than unweighted median but still far faster than the full consensus IDW computation.
+
 ---
 
 ### 5.6 Gradient-Free Task Arithmetic — Future Consideration
@@ -619,6 +779,22 @@ The coefficients `λ_i` act as capability dials — setting `λ_i = 0` removes a
 This is the theoretical foundation for TIES and DARE. Implementing task arithmetic as a first-class operation (not just a preprocessing step for TIES/DARE) would allow users to arithmetically compose and decompose capabilities.
 
 **Note:** This requires the base model and is most powerful when combining models fine-tuned from the same base on distinct tasks.
+
+#### Hardware Impact
+
+| Metric | Value |
+|---|---|
+| **Peak system RAM** | Base model resident + one task vector accumulated at a time: **~3 × model size ≈ ~20 GB** for SDXL with streaming |
+| **N-model scaling** | Constant peak RAM with streaming regardless of N; each `λ_i × τ_i` is accumulated into the result dict and the source delta is freed |
+| **VRAM usage** | Optional; scaled addition of task vectors maps trivially to GPU ops |
+| **GPU acceleration benefit** | ❌ Minimal — task arithmetic is scalar-multiply-and-add (structurally identical to weighted sum / LERP); the bottleneck is memory bandwidth, not compute |
+| **Primary bottleneck** | Disk I/O: base model read + N fine-tuned model reads to compute and stream each task vector |
+
+**Practical notes for 8 × SDXL on a desktop:**
+
+- Same RAM profile as TIES/DARE with streaming: ~20 GB peak, fits comfortably in 32 GB.
+- The `λ_i` coefficient scaling is the same operation as weighted sum; no additional memory pressure beyond the base model and one streaming delta.
+- GPU provides no meaningful advantage over CPU for this algorithm.
 
 ---
 
@@ -659,6 +835,163 @@ This is the theoretical foundation for TIES and DARE. Implementing task arithmet
 2. **Add SLERP** — two-model spherical interpolation; add `slerp` as a value for `merge_method` in the manifest schema.
 3. **Add `base_model` to `MergeManifest`** — schema addition only; enables TIES and DARE in a follow-up.
 4. **Implement TIES** — most impactful algorithmic addition after SLERP; directly addresses the dominant quality failure mode of LERP.
+
+### Hardware Quick Reference
+
+The memory requirements and GPU utility vary significantly across algorithms. Here is a quick reference for typical desktop hardware (16–32 GB RAM, optional GPU with 8–24 GB VRAM):
+
+| System RAM | Feasible Algorithms |
+|---|---|
+| **16 GB** | Passthrough ✅, Weighted Sum ⚠️ (~19.5 GB peak exceeds limit; needs OS compression/swap — degrades performance) |
+| **32 GB** | Weighted Sum ✅, SLERP ✅ (2-model), TIES ✅ (streaming), DARE ✅ (streaming), Task Arithmetic ✅ (streaming) |
+| **64 GB+** | All algorithms, including Consensus IDW and Weighted Median without per-layer chunking |
+
+**Key architectural advantage of the accumulator pattern:** The Weighted Sum accumulator keeps peak RAM at ~2× model size regardless of N models merged. Consensus and Weighted Median both require all N models in memory simultaneously (~N× model size), making them impractical without 64 GB+ RAM or chunked streaming.
+
+**On tournament dilution and the consensus algorithm:** The Consensus IDW algorithm is the only algorithm in stmerge designed for true N-model simultaneous merging without tournament-style weight dilution. Sequential pairwise merging dilutes early models exponentially (with 8 models, the first model contributes less than 1% of its original weight if merged in a binary tournament). Consensus avoids this entirely by computing per-element adaptive weights across all N models in a single pass. For memory-constrained systems where Consensus is not feasible, Weighted Sum with equal weights is the next best option — it at least ensures each model contributes the same nominal weight, even if it cannot adaptively suppress outliers.
+
+**GPU acceleration priority for desktop users:**
+
+1. Vectorize Consensus (§4.2.1) and run on GPU — highest impact; 10–50× speedup expected.
+2. SLERP on GPU — moderate benefit for two-model blends.
+3. TIES/DARE sign-vote and accumulation steps on GPU — moderate benefit.
+4. Weighted Sum on GPU — lowest priority; memory-bandwidth bound, <2× benefit.
+
+---
+
+## 8. Hardware Considerations
+
+Stable Diffusion XL checkpoints are large: approximately **6.5 GB on disk in fp16**, expanding to **~13 GB in fp32** during computation. Merging 8+ of them on a consumer desktop or laptop requires careful attention to peak RAM, VRAM availability, and which operations benefit from GPU acceleration.
+
+### 8.1 Hardware Target
+
+stmerge is designed to run on:
+
+- **CPU:** Always available; all algorithms work on CPU-only systems.
+- **System RAM:** 16–64 GB typical on modern desktops and workstations. The most important hardware resource for large model merges.
+- **GPU (optional):** NVIDIA GPUs with 8–24 GB VRAM (RTX 3080/4080/4090, A10, etc.) for accelerating compute-heavy algorithms.
+
+> **Key insight:** The bottleneck for most algorithms is **memory bandwidth and capacity**, not floating-point compute. Loading 6.5 GB of model weights from disk or RAM and performing element-wise operations is limited by how fast data can move — not by the speed of the arithmetic units.
+
+---
+
+### 8.2 Algorithm Hardware Impact Summary
+
+The table below sizes each algorithm for **8 × SDXL models** (each 6.5 GB fp16 on disk, ~13 GB fp32 in RAM):
+
+| Algorithm | Peak System RAM | VRAM Usage | GPU Acceleration Benefit | Practical Fit for 8 × SDXL |
+|---|---|---|---|---|
+| **Weighted Sum (stmerge)** | ~19.5 GB | None | ❌ Minimal | ✅ 32 GB RAM / ⚠️ Tight on 16 GB |
+| **Consensus IDW (stmerge)** | ~52 GB (all N loaded) | High if GPU-vectorized | ✅ Significant (once vectorized) | ❌ Requires 64 GB RAM or chunked streaming |
+| **LERP** | ~26 GB (2-model fp32) | Optional | ❌ Minimal | ⚠️ N/A for 8-model natively; 32 GB for 2-model |
+| **SLERP** | ~26 GB (2-model fp32) | Optional 8+ GB | ⚠️ Moderate | ⚠️ 2-model only; 32 GB recommended |
+| **TIES** | ~20 GB (streaming) | Optional | ⚠️ Moderate | ✅ 32 GB with streaming implementation |
+| **DARE** | ~20 GB (streaming) | Optional | ⚠️ Moderate | ✅ 32 GB with streaming implementation |
+| **Passthrough** | ~13 GB (fp16) | None | ❌ Minimal | ✅ 16 GB RAM |
+| **Weighted Median** | ~52 GB (all N loaded) | High if GPU | ✅ Significant | ❌ Requires 64 GB or chunked streaming |
+| **Task Arithmetic** | ~20 GB (streaming) | Optional | ❌ Minimal | ✅ 32 GB with streaming implementation |
+
+---
+
+### 8.3 RAM Requirements by System Configuration
+
+#### 16 GB System RAM
+
+| Algorithm | Feasibility | Notes |
+|---|---|---|
+| Weighted Sum | ⚠️ Tight | ~19.5 GB peak exceeds 16 GB capacity by ~3.5 GB; requires OS memory compression or swap; may succeed with no other heavy processes running, but swap will slow disk-bound model-loading phases significantly |
+| Passthrough | ✅ Comfortable | ~13 GB peak (fp16 source + output dict) |
+| LERP / SLERP | ⚠️ Marginal | Two fp32 SDXL models ≈ 26 GB; requires per-tensor streaming to stay within limit |
+| TIES / DARE / Task Arithmetic | ❌ Requires streaming | Base + streaming delta ≈ 20 GB; exceeds 16 GB without aggressive per-layer chunking |
+| Consensus / Weighted Median | ❌ Not feasible | 8 × 6.5 GB = 52 GB minimum — far exceeds capacity even with chunking |
+
+#### 32 GB System RAM
+
+| Algorithm | Feasibility | Notes |
+|---|---|---|
+| Weighted Sum | ✅ Comfortable | ~19.5 GB peak; ~12 GB headroom |
+| Passthrough | ✅ Comfortable | Well within limits |
+| LERP / SLERP | ✅ Comfortable (2-model) | ~26 GB peak for two fp32 models |
+| TIES / DARE / Task Arithmetic | ✅ With streaming | Streaming implementation keeps peak at ~20 GB |
+| Consensus / Weighted Median | ❌ Not feasible | 52 GB minimum exceeds capacity; chunked per-layer streaming is the only path |
+
+#### 64 GB+ System RAM
+
+All algorithms are feasible without special memory management. Consensus IDW and Weighted Median can load all 8 SDXL models simultaneously (~52 GB fp16) with room to spare for the intermediate distance matrix and output state dict.
+
+---
+
+### 8.4 GPU Acceleration
+
+GPU acceleration is most beneficial for **compute-heavy, memory-resident operations** where data can stay on the GPU between steps.
+
+| Algorithm | GPU Benefit Scenario |
+|---|---|
+| **Consensus IDW (vectorized)** | Dense `(N × N × E)` pairwise matrix computation is highly SIMD-parallel; expected 10–50× CPU speedup |
+| **Weighted Median** | `torch.median()` across N stacked tensors is highly parallelizable; 10–20× CPU speedup expected |
+| **SLERP** | `arccos` and `sin` per tensor element benefit from GPU parallelism; memory-bound for very large tensors |
+| **TIES / DARE** | Sign-vote, masked averaging, and Bernoulli sampling all map well to GPU ops; moderate benefit |
+| **Weighted Sum** | Simple multiply-add; memory-bandwidth bound; GPU provides <2× benefit |
+| **Passthrough** | Memory copy only — no arithmetic; GPU provides no benefit |
+
+**VRAM guidance for common consumer GPUs:**
+
+| GPU | VRAM | Notes for SDXL Merging |
+|---|---|---|
+| RTX 3080 / 4080 | 10–16 GB | Per-layer consensus stacks for most SDXL layers fit; 2-model SLERP feasible in fp16 |
+| RTX 4090 / A10 | 24 GB | Per-layer consensus stacks comfortably; full 2-model fp16 merge can stay resident throughout |
+| A100 / H100 | 40–80 GB | Multi-layer batching possible; can hold several SDXL layer groups at once |
+
+> **Important:** For algorithms that require all N models simultaneously (Consensus, Weighted Median), even a 24 GB GPU cannot hold all 8 SDXL models (~52 GB fp16 combined). These algorithms **must process one layer at a time**, moving each layer's data to GPU, computing the result, and transferring back before loading the next layer.
+
+---
+
+### 8.5 CPU vs. GPU Decision Guide
+
+For **CPU-only systems**, memory bandwidth is the dominant bottleneck. A high-bandwidth DDR5 system (dual-channel 4800 MT/s ≈ 76 GB/s theoretical peak, realistically 40–50 GB/s effective) can stream a 6.5 GB fp16 model in roughly 0.13–0.16 seconds under ideal sequential-read conditions; actual throughput is lower for state_dict loading due to random-access patterns across thousands of tensor keys. The arithmetic itself is nearly free by comparison.
+
+**Use GPU when:**
+
+- The algorithm does more than one multiply-add per element (e.g., `arccos`/`sin` for SLERP, pairwise distance matrix for Consensus, sort for Weighted Median).
+- The working set (stacked tensors, intermediate matrices) fits within VRAM for the layer being processed.
+- You have already vectorized the inner loops — GPU acceleration of a Python-level element loop (as in the current Consensus implementation) provides no benefit.
+
+**Use CPU when:**
+
+- The algorithm is purely linear (Weighted Sum, Passthrough, Task Arithmetic).
+- The working set exceeds available VRAM (load-to-GPU overhead outweighs compute benefit).
+- Streaming from disk is the dominant cost (disk → RAM → CPU is the critical path; adding GPU adds an extra RAM → VRAM copy).
+
+**Practical rule of thumb:** If an algorithm's inner operation is more expensive than a single multiply-add per element, GPU acceleration is likely worthwhile. If it is a multiply-add, stay on CPU.
+
+---
+
+### 8.6 Recommendations
+
+#### For 16 GB RAM systems
+
+1. Use **Passthrough** if layer-level source selection is sufficient for your use case.
+2. Use **Weighted Sum** with careful memory discipline (close other applications, disable browser tabs). The ~19.5 GB peak may succeed with OS memory compression; if it fails, add swap space.
+3. Avoid Consensus, Weighted Median, and all algorithms requiring both models loaded in fp32 simultaneously.
+
+#### For 32 GB RAM systems
+
+1. **Weighted Sum** for N-model merges — fastest, most memory-predictable, no preprocessing required.
+2. **TIES or DARE** (with streaming implementation) when sign-conflict quality issues are observed in the Weighted Sum output.
+3. **SLERP** for high-quality two-model blends where magnitude preservation matters.
+
+#### For 64 GB+ RAM systems
+
+1. All algorithms are available without special memory management.
+2. **Consensus IDW** (once vectorized per §4.2.1 and run on GPU) for equal-contribution N-model merges with automatic outlier suppression — the algorithm most purpose-built for this use case.
+3. **Weighted Median** as a fast approximation to Consensus when the exponent tuning is not needed.
+
+#### GPU acceleration priority (highest impact first)
+
+1. Vectorize Consensus (§4.2.1) → run on GPU — highest impact, unlocks the algorithm that was previously unusably slow.
+2. SLERP on GPU — meaningful benefit for two-model blends.
+3. TIES / DARE sign-vote and accumulation on GPU — moderate, secondary benefit.
+4. Weighted Sum on GPU — lowest priority; bottleneck is memory bandwidth, not compute.
 
 ---
 
