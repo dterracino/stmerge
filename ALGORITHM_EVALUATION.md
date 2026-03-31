@@ -33,6 +33,9 @@ This document evaluates the existing merging algorithms in **stmerge**, compares
    - [GPU Acceleration](#84-gpu-acceleration)
    - [CPU vs GPU Decision Guide](#85-cpu-vs-gpu-decision-guide)
    - [Recommendations](#86-recommendations)
+   - [RTX 3090 Platform-Specific Analysis](#87-rtx-3090-platform-specific-analysis)
+     - [RTX 3090 Laptop (16 GB VRAM)](#871-rtx-3090-laptop-16-gb-vram)
+     - [RTX 3090 Desktop (24 GB VRAM)](#872-rtx-3090-desktop-24-gb-vram)
 
 ---
 
@@ -869,7 +872,11 @@ stmerge is designed to run on:
 
 - **CPU:** Always available; all algorithms work on CPU-only systems.
 - **System RAM:** 16–64 GB typical on modern desktops and workstations. The most important hardware resource for large model merges.
-- **GPU (optional):** NVIDIA GPUs with 8–24 GB VRAM (RTX 3080/4080/4090, A10, etc.) for accelerating compute-heavy algorithms.
+- **GPU (optional):** The primary target platforms are:
+  - **RTX 3090 Laptop (Mobile)** — 16 GB GDDR6 VRAM, ~448 GB/s theoretical peak GPU memory bandwidth (~315–380 GB/s effective). Paired with 16–32 GB DDR5 system RAM.
+  - **RTX 3090 Desktop** — 24 GB GDDR6X VRAM, ~936 GB/s theoretical peak GPU memory bandwidth (~650–840 GB/s effective). Paired with 32–64 GB DDR4/DDR5 system RAM.
+
+  Other NVIDIA GPUs with 8–24 GB VRAM (RTX 3080, 4080, 4090, A10) follow similar patterns; the two RTX 3090 variants bracket the realistic range for this workload.
 
 > **Key insight:** The bottleneck for most algorithms is **memory bandwidth and capacity**, not floating-point compute. Loading 6.5 GB of model weights from disk or RAM and performing element-wise operations is limited by how fast data can move — not by the speed of the arithmetic units.
 
@@ -934,15 +941,27 @@ GPU acceleration is most beneficial for **compute-heavy, memory-resident operati
 | **Weighted Sum** | Simple multiply-add; memory-bandwidth bound; GPU provides <2× benefit |
 | **Passthrough** | Memory copy only — no arithmetic; GPU provides no benefit |
 
-**VRAM guidance for common consumer GPUs:**
+**VRAM guidance for target GPU platforms (8 × SDXL fp16 workload):**
 
-| GPU | VRAM | Notes for SDXL Merging |
-|---|---|---|
-| RTX 3080 / 4080 | 10–16 GB | Per-layer consensus stacks for most SDXL layers fit; 2-model SLERP feasible in fp16 |
-| RTX 4090 / A10 | 24 GB | Per-layer consensus stacks comfortably; full 2-model fp16 merge can stay resident throughout |
-| A100 / H100 | 40–80 GB | Multi-layer batching possible; can hold several SDXL layer groups at once |
+| GPU | VRAM | Weighted Sum | SLERP (2-model) | Consensus IDW (per-layer) | TIES / DARE | Notes |
+|---|---|---|---|---|---|---|
+| **RTX 3090 Laptop** | 16 GB GDDR6 | ⚠️ CPU preferred | ✅ GPU (fp16 only) | ⚠️ Per-layer GPU | ⚠️ Per-layer GPU | Accumulator (~13 GB fp32) + one model (6.5 GB fp16) = 19.5 GB > 16 GB; SLERP in fp16 (13 GB) fits with ~3 GB headroom |
+| **RTX 3090 Desktop** | 24 GB GDDR6X | ✅ GPU | ✅ GPU (fp16) | ⚠️ Per-layer GPU | ✅ GPU | Accumulator + one model (19.5 GB) fits in 24 GB with 4.5 GB headroom; TIES base+delta (13 GB) fits comfortably |
 
 > **Important:** For algorithms that require all N models simultaneously (Consensus, Weighted Median), even a 24 GB GPU cannot hold all 8 SDXL models (~52 GB fp16 combined). These algorithms **must process one layer at a time**, moving each layer's data to GPU, computing the result, and transferring back before loading the next layer.
+
+#### CPU Offloading Analysis
+
+In stmerge's architecture, all model weights reside in system RAM by default; the GPU is used only for the active layer's computation. **"CPU offload"** refers to the percentage of model data that must reside in system RAM rather than VRAM during a merge — a higher percentage means more data must shuttle between RAM and VRAM (or stay on CPU entirely), reducing the GPU's effective acceleration.
+
+| Algorithm | RTX 3090 Laptop (16 GB) CPU Offload | RTX 3090 Desktop (24 GB) CPU Offload | Notes |
+|---|---|---|---|
+| **Weighted Sum** | ~100% | ~Low | Laptop: accumulator in CPU RAM; layer-by-layer GPU compute bursts only — GPU adds overhead without meaningful speedup. Desktop: accumulator (13 GB fp32) + one model (6.5 GB fp16) fit in VRAM; only subsequent models need RAM→VRAM streaming. |
+| **SLERP (fp16, 2 models)** | ~0% | ~0% | Both fp16 models fully VRAM-resident on both platforms (13 GB of 16 GB or 24 GB); no offloading needed during computation. |
+| **SLERP (fp32, 2 models)** | ~100% | ~100% | 26 GB > 16 GB and 26 GB > 24 GB; must stream each tensor pair from CPU RAM for both platforms, though per-layer fp32 compute on GPU is feasible on the desktop. |
+| **Consensus IDW (per-layer, vectorized)** | ~95% | ~90% | All 8 model state dicts must live in CPU RAM (~52 GB fp16); per-layer slices sent to GPU for compute. Desktop handles larger layer batches more comfortably. |
+| **TIES / DARE** | ~90% | ~60% | Laptop: base model + one delta in CPU RAM; layer slices sent to GPU for sign-vote and accumulation. Desktop: base + one delta both fit in VRAM simultaneously (~13 GB), enabling GPU-resident sign-vote and accumulation. |
+| **Passthrough** | ~100% | ~100% | Memory copy only; all source weights in CPU RAM; no GPU benefit on either platform. |
 
 ---
 
@@ -992,6 +1011,75 @@ For **CPU-only systems**, memory bandwidth is the dominant bottleneck. A high-ba
 2. SLERP on GPU — meaningful benefit for two-model blends.
 3. TIES / DARE sign-vote and accumulation on GPU — moderate, secondary benefit.
 4. Weighted Sum on GPU — lowest priority; bottleneck is memory bandwidth, not compute.
+
+#### For RTX 3090 Laptop users (16 GB VRAM, typically 16–32 GB system RAM)
+
+1. **Weighted Sum** — run on **CPU** (accumulator too large for 16 GB VRAM; GPU adds overhead). With 32 GB system RAM this is comfortable and fast.
+2. **SLERP** — run on **GPU with fp16** (both models fit in VRAM). Drop to CPU per-layer streaming for fp32.
+3. **Consensus IDW** (once vectorized) — run **per-layer on GPU** after vectorizing (§4.2.1). Requires 64 GB system RAM for all 8 models simultaneously, or a chunked-streaming implementation.
+4. **TIES / DARE** — run streaming with per-layer GPU offload. Most effective on 32 GB system RAM.
+5. **Passthrough** — CPU always; no VRAM benefit.
+
+#### For RTX 3090 Desktop users (24 GB VRAM, typically 32–64 GB system RAM)
+
+1. **Weighted Sum** — can run **fully on GPU** (accumulator + one model fit in 24 GB VRAM). This is the only consumer GPU class where fully GPU-resident Weighted Sum of SDXL models is feasible.
+2. **SLERP** — run on **GPU with fp16** (excellent fit; 11 GB headroom). Comfortable and fast.
+3. **TIES / DARE** — run on **GPU** (base + one delta fit in VRAM simultaneously). Lower CPU offload than any other platform.
+4. **Consensus IDW** (once vectorized) — run **per-layer on GPU**. With 64 GB system RAM, all 8 models can be held in CPU RAM and served layer-by-layer to the GPU efficiently.
+5. **Passthrough** — CPU always.
+
+---
+
+### 8.7 RTX 3090 Platform-Specific Analysis
+
+The two RTX 3090 variants are the primary development and testing targets for stmerge. Their VRAM sizes sit on opposite sides of the critical 19.5 GB threshold (accumulator + one model for Weighted Sum), making them interesting to compare in detail.
+
+#### 8.7.1 RTX 3090 Laptop (16 GB VRAM)
+
+**Typical system:** 16–32 GB DDR5, RTX 3090 Mobile (16 GB GDDR6, ~448 GB/s GPU memory bandwidth), NVMe SSD storage.
+
+| Algorithm | Runs? | VRAM Used | CPU Offload | Recommended Device | Notes |
+|---|---|---|---|---|---|
+| **Weighted Sum** | ✅ Yes | ~0 MB sustained (layer-by-layer) | ~100% | CPU | Accumulator lives in system RAM; GPU adds overhead without meaningful speedup; run on CPU. May work with 16 GB system RAM if swap is available, though performance will be significantly degraded during model-loading phases. |
+| **Consensus IDW (current, Python loop)** | ❌ Unusably slow | ~0 MB | ~100% | CPU (slow) | Python element loop is the bottleneck regardless of GPU; vectorize first (§4.2.1). |
+| **Consensus IDW (vectorized)** | ⚠️ Per-layer only | ~470 MB per large layer | ~95% | GPU (per-layer) | Fits easily per-layer; all 8 model state dicts must be in CPU RAM (~52 GB needed — requires 64 GB system RAM or chunked streaming); 10–50× speedup over CPU. |
+| **SLERP (2 models, fp16)** | ✅ Yes | ~13 GB (both models) | ~0% | GPU | Both fp16 models fit in 16 GB VRAM with ~3 GB headroom; GPU recommended for trigonometric ops. |
+| **SLERP (2 models, fp32)** | ⚠️ Per-layer streaming | ~0 MB sustained | ~100% | CPU | 26 GB > 16 GB VRAM; must cast each tensor to fp32, compute, cast back; run on CPU. |
+| **TIES / DARE** | ✅ With streaming | ~0–100 MB per layer | ~90% | CPU or GPU per-layer | Base model + delta computed layer-by-layer; GPU useful for sign-vote and masked accumulation. |
+| **Passthrough** | ✅ Yes | ~0 MB | ~100% | CPU | Memory copy only; GPU provides no benefit. |
+| **Weighted Median** | ⚠️ Per-layer only | ~50 MB per layer | ~95% | GPU (per-layer) | Same system RAM constraint as Consensus; GPU beneficial for `torch.median()` op. |
+
+##### Important: System RAM is the binding constraint for this platform
+
+With this GPU, VRAM is not the primary limiting factor for most algorithms — system RAM is:
+
+- **16 GB system RAM:** Weighted Sum (~19.5 GB peak) requires swap or memory compression. All other multi-model algorithms are infeasible without per-layer chunking.
+- **32 GB system RAM:** Weighted Sum, SLERP (fp16), TIES, and DARE all become comfortable. This is the recommended minimum for productive use.
+- **64 GB system RAM:** Consensus IDW and Weighted Median become accessible, with all 8 model state dicts held in RAM simultaneously and per-layer slices streamed to the GPU.
+
+---
+
+#### 8.7.2 RTX 3090 Desktop (24 GB VRAM)
+
+**Typical system:** 32–64 GB DDR4/DDR5, RTX 3090 (24 GB GDDR6X, ~936 GB/s GPU memory bandwidth), NVMe SSD storage.
+
+| Algorithm | Runs? | VRAM Used | CPU Offload | Recommended Device | Notes |
+|---|---|---|---|---|---|
+| **Weighted Sum** | ✅ Yes | ~19.5 GB (accumulator + model) | ~Low | GPU | Accumulator (13 GB fp32) + one model (6.5 GB fp16) fit in 24 GB VRAM with 4.5 GB headroom; entire weighted sum can run GPU-resident; subsequent models are loaded disk → system RAM → VRAM one at a time and accumulated in-place. |
+| **Consensus IDW (current, Python loop)** | ❌ Unusably slow | ~0 MB | ~90% | CPU (slow) | Python loop; vectorize first (§4.2.1). |
+| **Consensus IDW (vectorized)** | ⚠️ Per-layer, but comfortable | ~470 MB per large layer | ~90% | GPU (per-layer) | Larger layer batches than laptop; all 8 model state dicts still in CPU RAM; 32 GB system RAM needed. |
+| **SLERP (2 models, fp16)** | ✅ Yes | ~13 GB | ~0% | GPU | Both models fully resident in 24 GB VRAM; 11 GB headroom. |
+| **SLERP (2 models, fp32)** | ⚠️ Per-layer streaming | ~0 MB sustained | ~100% | CPU or per-layer GPU | 26 GB > 24 GB; just over the limit; per-layer fp32 compute on GPU is feasible since each layer pair is tiny relative to VRAM. |
+| **TIES / DARE** | ✅ Yes | ~13 GB (base + one delta) | ~60% | GPU | Base model + one fine-tuned model fit simultaneously in VRAM; sign-vote and accumulation fully in VRAM; remaining models in CPU RAM. |
+| **Passthrough** | ✅ Yes | ~0 MB | ~100% | CPU | No GPU benefit. |
+| **Weighted Median** | ⚠️ Per-layer only | ~50 MB per layer | ~90% | GPU (per-layer) | Same system RAM constraint; more comfortable layer batches than laptop; 32 GB system RAM strongly recommended. |
+
+##### Key advantage over the laptop
+
+The 24 GB VRAM changes two algorithms fundamentally compared to the 16 GB laptop:
+
+- **Weighted Sum** crosses from CPU-only to fully GPU-resident: the accumulator (13 GB fp32) and one model (6.5 GB fp16) fit simultaneously with 4.5 GB to spare. Subsequent models are loaded disk → system RAM → VRAM one at a time and accumulated in-place, meaning the entire merge arithmetic runs on GPU with no intermediate CPU offloading of results. This is the only mainstream consumer GPU class where this is possible for SDXL.
+- **TIES and DARE** benefit significantly: the base model and one fine-tuned model (combined ~13 GB fp16) both fit in VRAM at the same time, enabling the sign-vote, mask computation, and accumulation steps to run entirely in VRAM without shuttling intermediate tensors back to CPU RAM.
 
 ---
 
