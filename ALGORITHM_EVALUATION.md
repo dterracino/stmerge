@@ -89,6 +89,12 @@ Only the accumulator and one loaded model live in RAM at any time, making it pos
 | **No redundancy elimination** | Redundant or noise-level deltas from each model add up and can introduce drift |
 | **User must know weights** | The user is responsible for choosing weights that produce coherent results; no guidance or validation is provided |
 
+#### Supported Model Count
+
+**Minimum:** 1 model (trivially copies the single model with its weight applied)  
+**Maximum:** Unlimited — the accumulator pattern keeps peak RAM constant at ~2× model size regardless of N  
+**Sweet spot:** **8–20+ models** — designed from the ground up for large multi-model merges; this is stmerge's primary strength
+
 #### Hardware Impact
 
 | Metric | Value |
@@ -184,6 +190,12 @@ This makes the consensus algorithm uniquely suited to **merging 8 or more models
 | **Consensus ≠ better** | If models intentionally diverge in a layer (style specialisation), forcing them toward consensus destroys the diversity that made each model valuable |
 | **Python-level loop** | The `for elem_idx in range(num_elements)` loop is unbatched Python; even modest tensors with millions of parameters are extremely slow |
 
+#### Supported Model Count
+
+**Minimum:** 2 models  
+**Maximum:** Unlimited — but RAM scales linearly with N (all models must be in memory simultaneously)  
+**Sweet spot:** **8–20 models.** The algorithm's per-element pairwise-consensus approach is purpose-built for large ensembles. With only 2 models it degenerates to a simple average — no better than LERP. The outlier-suppression value emerges at N ≥ 3. Statistical robustness peaks at N ≥ 8, where a single divergent model is reliably outvoted. This is the algorithm most directly targeting stmerge's 8+ model use case — at the cost of higher RAM requirements (all N models must reside in memory simultaneously).
+
 #### Hardware Impact
 
 | Metric | Value |
@@ -221,6 +233,8 @@ Extended to N models it becomes the weighted sum already implemented in stmerge.
 
 **Key limitation:** Operates in flat Euclidean space. For unit-normalized weight vectors (common in transformer attention and normalization layers), the interpolated point lies *inside* the hypersphere rather than on its surface, causing magnitude shrinkage.
 
+**Designed model count:** 2 models natively (the formula `A × (1-t) + B × t` is defined for a pair). Extended to N models it is identical to stmerge's Weighted Sum — there is no meaningful algorithmic distinction once N > 2.
+
 ---
 
 ### 2.2 SLERP – Spherical Linear Interpolation
@@ -242,6 +256,8 @@ where θ = arccos(q₀ · q₁ / (‖q₀‖ · ‖q₁‖))
 **Limitation:** SLERP is naturally a two-model operation. Extending it to N models (via iterated pairwise SLERP or barycentric SLERP on the Riemannian manifold) is non-trivial and adds complexity. It is also slower than LERP because it requires the trigonometric `arccos` per tensor.
 
 **Community adoption:** Used in many popular merge GUIs (Supermerger, sd-meh) precisely because it produces cleaner blends for style-heavy model pairs.
+
+**Designed model count:** **2 models only.** SLERP is a pairwise operation by definition — the formula requires exactly two vectors and a single interpolation scalar `t`. Extending to N > 2 via iterated pairwise SLERP is possible, but introduces ordering bias: the result depends on which model is combined first. With each additional iteration the magnitude-preservation guarantee also weakens. This is a fundamentally 2-model technique with no native path to 8+ model merges.
 
 #### Hardware Impact
 
@@ -288,6 +304,8 @@ result = θ_base + mean( Δθ_i[k] for i where sign(Δθ_i[k]) == sign_elected[k
 
 **Limitation:** Requires access to the original base model checkpoint. The deltas must be computed before merging, which adds a preprocessing step and extra disk I/O. Also, the trimming threshold τ is a hyperparameter that requires tuning.
 
+**Designed model count:** N ≥ 2 (any number). The sign-election step aggregates sign votes across all N task vectors simultaneously, making TIES natively suited to large ensembles. The statistical robustness of the sign vote actually *improves* with more models — with 8+ models the majority direction is more reliably determined than with just 2. Well-suited for stmerge's 8+ model target, with a streaming implementation keeping peak RAM constant regardless of N.
+
 #### Hardware Impact
 
 | Metric | Value |
@@ -331,6 +349,8 @@ result = θ_base + Σ (w_i × Δθ_i_dare)
 - Particularly effective when the fine-tunes are from the same base model and cover different but potentially overlapping capabilities.
 
 **Limitation:** Requires the base model. Introduces randomness (though a seed can make it reproducible). The drop probability `p` is another hyperparameter (typically 0.9 for language models).
+
+**Designed model count:** N ≥ 2 (any number). DARE is applied independently to each model's task vector before the final merge, so it is model-count-agnostic. Its interference-reduction effectiveness actually *improves* as N increases: at `p = 0.9`, each model retains only 10% of its delta values, so the probability that any two models share a non-zero delta at the same position is ~1% — and the probability of 3+ models colliding at the same position is ~0.1%. More models means fewer collisions and less interference. Well-suited for stmerge's 8+ model target.
 
 #### Hardware Impact
 
@@ -378,6 +398,8 @@ No arithmetic is performed on the weights; layers are just copied verbatim into 
 - No smooth blending; it's all-or-nothing per layer.
 - Cannot be done in the current stmerge architecture without loading entire models and re-assembling the state dict layer by layer.
 
+**Designed model count:** N ≥ 1 (any number of source models). A layer recipe can draw from any number of distinct source checkpoints; there is no inherent algorithmic limit. In practice, recipes typically reference 2–8 source models, with more sources increasing the likelihood of incoherence at layer boundaries. Unlike parameter-averaging algorithms, each source model contributes a discrete set of layers rather than a fractional blend — so this scales to many sources without dilution concerns.
+
 #### Hardware Impact
 
 | Metric | Value |
@@ -402,7 +424,7 @@ No arithmetic is performed on the weights; layers are just copied verbatim into 
 |---|---|---|---|---|---|---|---|
 | Mathematical basis | Linear combination | Inverse-distance IDW | Linear interpolation | Geodesic interpolation | Task-vector sign election | Stochastic sparsification | Layer transplantation |
 | Base model required | ❌ No | ❌ No | ❌ No | ❌ No | ✅ Yes | ✅ Yes | ❌ No |
-| Works on N > 2 models natively | ✅ Yes | ✅ Yes | ⚠️ Requires extension | ⚠️ Pairwise only | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Supported model count** | **N ≥ 1 (designed for 8+)** | **N ≥ 2 (designed for 8+)** | **N = 2 natively; N ≥ 2 via extension** | **⚠️ N = 2 only (pairwise)** | **N ≥ 2 (any; improves with N)** | **N ≥ 2 (any; improves with N)** | **N ≥ 1 (any)** |
 | Respects user weights | ✅ Yes | ❌ No | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | N/A |
 | Sign-conflict resolution | ❌ No | ❌ No | ❌ No | ❌ No | ✅ Yes | Partial | N/A |
 | Magnitude preservation | ❌ Shrinks | ❌ Shrinks | ❌ Shrinks | ✅ Yes | Partial | ✅ (rescaled) | ✅ Yes |
@@ -563,6 +585,8 @@ The consensus merge currently notes `"User-provided weights are ignored in conse
 
 **Value:** The most widely-requested SD merge algorithm, solves magnitude shrinkage inherent in LERP.
 
+**Model count: Exactly 2.** SLERP is a pairwise operation by definition — the formula requires exactly two vectors and one interpolation scalar `t`. The implementation must enforce this constraint. An "iterated SLERP" variant for N > 2 is listed separately (§6, lowest priority); it introduces ordering bias and progressively weakens the magnitude-preservation guarantee with each additional pair combined. **This algorithm addresses a 2-model use case and has no native path to 8+ model merges.**
+
 **Implementation sketch:**
 
 ```python
@@ -585,6 +609,8 @@ Add `_slerp_merge()` to `merger.py` that:
 ### 5.2 TIES Merge — Medium Priority
 
 **Value:** Addresses sign-conflict interference, which is the most significant quality problem with LERP on models fine-tuned from the same base.
+
+**Model count:** N ≥ 2 (any number). The sign-vote and masked-average steps natively aggregate across all N task vectors simultaneously — there is no pairwise constraint. With more models the sign vote becomes more statistically robust, so TIES benefits from having 8+ models rather than just 2. **Well-suited for stmerge's 8+ model target** when a base model is available; the streaming implementation keeps peak RAM constant regardless of N.
 
 **Requirements:** Access to the original base model checkpoint.
 
@@ -653,6 +679,8 @@ def _ties_merge(model_entries, base_path, device, trim_ratio=0.2):
 
 **Value:** Reduces parameter interference when merging many fine-tunes from the same base. Pairs naturally with TIES.
 
+**Model count:** N ≥ 2 (any number; effectiveness improves with N). DARE is applied as an independent per-model preprocessing step — each model's task vector is sparsified in isolation, regardless of how many other models exist. This independence is what makes it scale well: at `p = 0.9`, each model retains only 10% of its delta values. Because each model's sparse mask is drawn independently, the probability that any two models share a non-zero delta at the same position is ~1%. With three or more models all colliding at the same position, the probability drops to ~0.1%. More models means fewer collisions and less interference. **The more models you merge, the better DARE's interference reduction works.** Well-suited for stmerge's 8+ model target when a base model is available.
+
 **Requirements:** Base model.
 
 **Implementation sketch:**
@@ -697,6 +725,8 @@ dare_seed: Optional[int] = None
 
 **Value:** Produces models with strongly preserved characteristics from each source by copying whole layers rather than averaging parameter values.
 
+**Model count:** N ≥ 1 (any number of source models). A layer recipe can reference any number of distinct source checkpoints. Unlike parameter-averaging algorithms, each source model contributes a discrete set of layers rather than a fractional blend — there are no dilution concerns and no pairwise constraint. In practice, recipes typically reference 2–8 source models; more sources increase the likelihood of incoherence at layer boundaries.
+
 **Architecture mapping for Stable Diffusion U-Net:**
 
 | Block group | Key prefix |
@@ -740,6 +770,8 @@ Add `_passthrough_merge()` to `merger.py` that:
 
 **Value:** A fast, hyperparameter-free approximation to consensus merging.
 
+**Model count:** N ≥ 2 (any number; most useful for N ≥ 4). With N = 2, the median is equivalent to the midpoint — identical to LERP at t = 0.5 with no outlier benefit. Outlier-resistance first emerges at N = 3, and becomes practically meaningful at N ≥ 4 (where the median can genuinely exclude an extreme value). **Best suited for 8+ model merges**, where it serves as a faster alternative to Consensus IDW: the sort-based median is O(N log N) per element vs. O(N²) for the full pairwise-distance consensus. The RAM tradeoff is the same as Consensus — all N models must reside in memory simultaneously, so RAM requirements scale linearly with N.
+
 For each parameter position, take the **weighted median** (or unweighted median for equal-weight merges) across all models. The median is inherently outlier-resistant: a single model with an extreme value cannot pull the result beyond the median rank.
 
 ```python
@@ -781,6 +813,8 @@ The coefficients `λ_i` act as capability dials — setting `λ_i = 0` removes a
 
 This is the theoretical foundation for TIES and DARE. Implementing task arithmetic as a first-class operation (not just a preprocessing step for TIES/DARE) would allow users to arithmetically compose and decompose capabilities.
 
+**Model count:** N ≥ 1 (any number). Each task vector is independently scaled by `λ_i` and accumulated into the result; the operation is additive and scales to any N with constant peak RAM when streaming. **Well-suited for stmerge's 8+ model target** — the accumulator pattern applies directly to task vectors the same way it applies to full model weights.
+
 **Note:** This requires the base model and is most powerful when combining models fine-tuned from the same base on distinct tasks.
 
 #### Hardware Impact
@@ -803,17 +837,17 @@ This is the theoretical foundation for TIES and DARE. Implementing task arithmet
 
 ## 6. Implementation Priority
 
-| Priority | Algorithm | Effort | Impact | Notes |
-|---|---|---|---|---|
-| 🔴 **High** | Vectorized consensus (performance fix) | Low | Very High | Replaces Python loop with batched tensor ops; no API change |
-| 🔴 **High** | SLERP | Medium | High | Most-requested in community; adds `slerp` method |
-| 🟡 **Medium** | Weighted median | Low | Medium | Adds `median` method; no base model required |
-| 🟡 **Medium** | Per-block weights (MBW) | Medium | High | Unlocks the most nuanced community merge workflows |
-| 🟡 **Medium** | TIES | High | High | Requires base model; solves sign conflicts |
-| 🟡 **Medium** | DARE + TIES | High | High | Pairs with TIES for stronger interference reduction |
-| 🟢 **Low** | Passthrough / Frankenmerging | Medium | Medium | Niche but powerful; needs manifest schema extension |
-| 🟢 **Low** | Task arithmetic | High | Medium | Foundation for TIES/DARE; needs base model |
-| 🟢 **Low** | Iterated SLERP for N > 2 | Medium | Low | Useful for quality; not strictly necessary |
+| Priority | Algorithm | Model Count | Effort | Impact | Notes |
+|---|---|---|---|---|---|
+| 🔴 **High** | Vectorized consensus (performance fix) | N ≥ 2 (designed for 8+) | Low | Very High | Replaces Python loop with batched tensor ops; no API change |
+| 🔴 **High** | SLERP | **N = 2 only** ⚠️ | Medium | High | Most-requested in community; adds `slerp` method; pairwise — no path to 8+ models natively |
+| 🟡 **Medium** | Weighted median | N ≥ 2 (best at 8+) | Low | Medium | Adds `median` method; no base model required; faster Consensus approximation |
+| 🟡 **Medium** | Per-block weights (MBW) | N ≥ 1 (any) | Medium | High | Unlocks the most nuanced community merge workflows |
+| 🟡 **Medium** | TIES | N ≥ 2 (any; improves with N) | High | High | Requires base model; solves sign conflicts; scales to 8+ |
+| 🟡 **Medium** | DARE + TIES | N ≥ 2 (any; improves with N) | High | High | Pairs with TIES for stronger interference reduction; scales to 8+ |
+| 🟢 **Low** | Passthrough / Frankenmerging | N ≥ 1 (any) | Medium | Medium | Niche but powerful; needs manifest schema extension |
+| 🟢 **Low** | Task arithmetic | N ≥ 1 (any) | High | Medium | Foundation for TIES/DARE; needs base model; scales to 8+ |
+| 🟢 **Low** | Iterated SLERP for N > 2 | N ≥ 3 (order-dependent) ⚠️ | Medium | Low | Useful for quality; pairwise ordering bias weakens guarantees |
 
 ---
 
@@ -824,6 +858,20 @@ This is the theoretical foundation for TIES and DARE. Implementing task arithmet
 - **Memory-efficient accumulator pattern** is the right architecture. No other community tool handles 8+ large models as gracefully.
 - **Consensus merge is a genuinely novel idea** not commonly found in other SD merge tools. The inverse-distance-weighting approach is well-reasoned.
 - **Clean separation of concerns** makes it straightforward to add new merge methods in `merger.py` without touching the manifest, loader, or saver modules.
+
+### Algorithm suitability for stmerge's 8+ model use case
+
+| Algorithm | 8+ Model Suitability | Notes |
+|---|---|---|
+| **Weighted Sum** | ✅ Designed for 8+ | Core strength of stmerge; constant RAM regardless of N |
+| **Consensus IDW** | ✅ Designed for 8+ | Best outlier suppression; needs vectorization and 64 GB RAM or chunked streaming |
+| **TIES** | ✅ Scales to 8+ | Sign-vote improves with more models; requires base model |
+| **DARE** | ✅ Scales to 8+ (improves with N) | Interference reduction improves as N grows; requires base model |
+| **Task Arithmetic** | ✅ Scales to 8+ | Additive; same RAM profile as Weighted Sum with streaming |
+| **Weighted Median** | ✅ Best at 8+ | Outlier resistance meaningful only at N ≥ 4; same RAM needs as Consensus |
+| **Passthrough** | ⚠️ Any N (no dilution) | Layer-level granularity; no parameter blending or dilution |
+| **LERP** | ⚠️ N = 2 natively | Identical to Weighted Sum when extended to N > 2 |
+| **SLERP** | ❌ N = 2 only | Fundamentally pairwise; no native 8+ model path |
 
 ### Critical gaps
 
