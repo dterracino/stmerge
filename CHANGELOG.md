@@ -27,6 +27,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Block-weighted merging (different weights per layer)
 - Model info command (inspect models without merging)
 
+## [0.6.3] - 2026-04-12
+
+### Fixed
+
+- **Backward compatibility for old manifest files without `index` field**
+  - Manifest loader now automatically adds `index` field based on array order for legacy manifests
+  - Fixes `ModelEntry.__init__() missing 1 required positional argument: 'index'` error
+  - Allows seamless use of manifests created before v0.6.1
+
+- **Relative path resolution in manifests**
+  - Model paths, VAE paths, and output paths are now resolved relative to the manifest file's directory
+  - Fixes issue where output was saved in current working directory instead of manifest location
+  - Enables running merges from any directory without path issues
+  - Absolute paths continue to work as expected
+
 ## [0.6.2] - 2026-04-12
 
 ### Fixed

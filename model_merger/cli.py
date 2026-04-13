@@ -323,6 +323,18 @@ def cmd_merge(args):
     # Display manifest summary
     print_manifest_summary(manifest)
     
+    # Resolve all relative paths relative to manifest file's directory
+    manifest_dir = manifest_path.parent
+    for model_entry in manifest.models:
+        model_path = Path(model_entry.path)
+        if not model_path.is_absolute():
+            model_entry.path = str(manifest_dir / model_path)
+    
+    if manifest.vae:
+        vae_path = Path(manifest.vae.path)
+        if not vae_path.is_absolute():
+            manifest.vae.path = str(manifest_dir / vae_path)
+    
     # Validate manifest
     console.print("\n[cyan]Validating manifest...[/cyan]")
     issues = manifest_module.validate_manifest(manifest)
@@ -424,6 +436,11 @@ def cmd_merge(args):
         # Note: output is never None after __post_init__, but Pylance doesn't know that
         assert manifest.output is not None, "Output should always be set by __post_init__"
         output_path = Path(manifest.output.path)  # Extract path from OutputEntry
+        
+        # Resolve relative paths relative to the manifest file's directory
+        if not output_path.is_absolute():
+            output_path = manifest_path.parent / output_path
+        
         output_hash = saver_module.save_model(
             state_dict=merged_dict,
             output_path=output_path,

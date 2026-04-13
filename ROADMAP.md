@@ -168,6 +168,39 @@ stats = {
 
 ---
 
+### Use VAE from Specific Model
+
+**Description:** During merge, use the VAE from a specific input model instead of blending all VAEs or providing a separate VAE file.
+
+**Use case:** "I want Model 0's VAE, not a blended average" or "This base model has the best VAE"
+
+**Manifest format:**
+
+```json
+{
+  "vae": {
+    "source": "model",
+    "model_index": 0
+  }
+}
+```
+
+**Implementation approach:**
+
+1. Skip `first_stage_model.*` keys during weighted merge when VAE source is a model
+2. After merge complete, extract VAE from specified model and bake it in
+3. Maintain backward compatibility with string path and null (blend all) formats
+
+**Implementation complexity:** Medium - requires:
+
+- Schema changes to VAEEntry with backward compatibility
+- Conditional key skipping in merger (context-dependent merge logic)
+- VAE extraction logic (similar to Extract VAE feature)
+
+**Priority:** Medium - useful feature that avoids needing separate VAE files, but adds merge complexity
+
+---
+
 ### Extract VAE from Model
 
 **Description:** Extract the baked VAE from a full SD checkpoint and save it as standalone VAE.

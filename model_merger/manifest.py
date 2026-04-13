@@ -96,7 +96,13 @@ class MergeManifest:
     @classmethod
     def from_dict(cls, data: Dict) -> 'MergeManifest':
         """Create manifest from dictionary (loaded from JSON)."""
-        models = [ModelEntry(**m) for m in data['models']]
+        # Backward compatibility: Add index field if missing (use array order)
+        models_data = data['models']
+        for i, model_dict in enumerate(models_data):
+            if 'index' not in model_dict:
+                model_dict['index'] = i
+        
+        models = [ModelEntry(**m) for m in models_data]
         
         # Validate model indices
         indices = [m.index for m in models]

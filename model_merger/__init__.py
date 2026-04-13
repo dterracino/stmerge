@@ -26,7 +26,7 @@ Or for conversion:
     6. (Optional) Deep verify original vs converted
 """
 
-__version__ = '0.6.2'
+__version__ = '0.6.3'
 
 # Expose main classes and functions at package level
 from .config import (
