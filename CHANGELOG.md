@@ -27,6 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Block-weighted merging (different weights per layer)
 - Model info command (inspect models without merging)
 
+## [0.6.4] - 2026-04-12
+
+### Fixed
+
+- **Consensus merge crash with scalar tensors**
+  - Fixed `reshape() missing 1 required positional arguments: "shape"` error
+  - Consensus merge now handles 0-dimensional (scalar) tensors correctly
+  - Scalar tensors use simplified consensus computation instead of chunked processing
+  - Proper memory cleanup for both scalar and non-scalar tensor paths
+
 ## [0.6.3] - 2026-04-12
 
 ### Fixed

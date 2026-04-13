@@ -377,40 +377,51 @@ def _consensus_merge(
 
                 stacked = torch.stack(tensors, dim=0)          # (N, *shape)
                 original_shape = stacked.shape[1:]
-                stacked_flat = stacked.reshape(num_models, -1)  # (N, E)
-                num_elements = stacked_flat.shape[1]
-                merged_flat = torch.zeros(num_elements, dtype=torch.float32, device=device)
+                
+                # Handle scalar tensors (0-dimensional) or tensors with empty shape
+                if len(original_shape) == 0:
+                    # Scalar tensor: use consensus on single value
+                    values = stacked.reshape(-1)  # (N,)
+                    weights = compute_consensus_weights(values, exponent)
+                    result[key] = (values * weights).sum()
+                    del values, weights
+                else:
+                    stacked_flat = stacked.reshape(num_models, -1)  # (N, E)
+                    num_elements = stacked_flat.shape[1]
+                    merged_flat = torch.zeros(num_elements, dtype=torch.float32, device=device)
 
-                # Process in chunks to bound peak RAM from the (N × N × C) distance matrix.
-                # For N=8, chunk_size=65536: 8×8×65536×4 B ≈ 134 MB per chunk.
-                for chunk_start in range(0, num_elements, chunk_size):
-                    chunk_end = min(chunk_start + chunk_size, num_elements)
-                    chunk = stacked_flat[:, chunk_start:chunk_end]  # (N, C)
+                    # Process in chunks to bound peak RAM from the (N × N × C) distance matrix.
+                    # For N=8, chunk_size=65536: 8×8×65536×4 B ≈ 134 MB per chunk.
+                    for chunk_start in range(0, num_elements, chunk_size):
+                        chunk_end = min(chunk_start + chunk_size, num_elements)
+                        chunk = stacked_flat[:, chunk_start:chunk_end]  # (N, C)
 
-                    # Pairwise distances: (N, N, C) → average per model: (N, C)
-                    diff = chunk.unsqueeze(1) - chunk.unsqueeze(0)
-                    avg_dist = diff.abs().mean(dim=1)
-                    del diff
+                        # Pairwise distances: (N, N, C) → average per model: (N, C)
+                        diff = chunk.unsqueeze(1) - chunk.unsqueeze(0)
+                        avg_dist = diff.abs().mean(dim=1)
+                        del diff
 
-                    min_d = avg_dist.min(dim=0).values   # (C,)
-                    max_d = avg_dist.max(dim=0).values   # (C,)
-                    range_d = (max_d - min_d).clamp(min=1e-10)
+                        min_d = avg_dist.min(dim=0).values   # (C,)
+                        max_d = avg_dist.max(dim=0).values   # (C,)
+                        range_d = (max_d - min_d).clamp(min=1e-10)
 
-                    normalized = (avg_dist - min_d) / range_d  # (N, C)
-                    weights = (1.0 - normalized) ** exponent   # (N, C)
-                    del avg_dist, normalized
+                        normalized = (avg_dist - min_d) / range_d  # (N, C)
+                        weights = (1.0 - normalized) ** exponent   # (N, C)
+                        del avg_dist, normalized
 
-                    # Columns where all models agree exactly: assign equal weights
-                    # to avoid numerical noise from the clamp driving arbitrary results
-                    equal_cols = (max_d - min_d) < 1e-10       # (C,) bool
-                    weights[:, equal_cols] = 1.0 / num_models
+                        # Columns where all models agree exactly: assign equal weights
+                        # to avoid numerical noise from the clamp driving arbitrary results
+                        equal_cols = (max_d - min_d) < 1e-10       # (C,) bool
+                        weights[:, equal_cols] = 1.0 / num_models
 
-                    weights = weights / weights.sum(dim=0, keepdim=True)
-                    merged_flat[chunk_start:chunk_end] = (chunk * weights).sum(dim=0)
-                    del weights
+                        weights = weights / weights.sum(dim=0, keepdim=True)
+                        merged_flat[chunk_start:chunk_end] = (chunk * weights).sum(dim=0)
+                        del weights
 
-                result[key] = merged_flat.reshape(*original_shape)
-                del stacked, stacked_flat, merged_flat
+                    result[key] = merged_flat.reshape(original_shape)
+                    del stacked_flat, merged_flat
+                
+                del stacked
             else:
                 # Non-float tensors (e.g. integer indices): copy from first model
                 result[key] = tensors[0]
