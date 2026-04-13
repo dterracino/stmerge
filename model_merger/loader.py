@@ -7,7 +7,7 @@ and computing SHA-256 hashes for verification/lookup.
 
 import torch
 from pathlib import Path
-from typing import Dict, Tuple, Optional, Any
+from typing import Dict, Tuple, Optional, Any, Union
 from safetensors.torch import load_file
 
 from . import config
@@ -159,20 +159,21 @@ def load_vae(
 def validate_models_compatible(
     reference_shapes: Dict[str, torch.Size],
     reference_keys: set,
-    current_model: Dict[str, torch.Tensor],
+    current_model: Dict[str, Union[torch.Tensor, torch.Size]],
     reference_name: str,
     current_name: str
 ) -> Tuple[bool, Optional[str]]:
     """
     Validate that two models have compatible structures for merging.
-    
+
     Args:
         reference_shapes: Tensor shapes from reference model
         reference_keys: Set of keys from reference model
-        current_model: Current model state dict to validate
+        current_model: Current model — either a state dict of tensors, or a dict
+                       of pre-computed torch.Size values (from safe_open header reads).
         reference_name: Name of reference model (for error messages)
         current_name: Name of current model (for error messages)
-        
+
     Returns:
         (is_compatible, error_message) tuple
     """
@@ -197,16 +198,21 @@ def validate_models_compatible(
     for key in filtered_reference_keys:
         if key not in current_model:
             continue  # Already caught above
-            
-        if isinstance(current_model[key], torch.Tensor):
-            reference_shape = reference_shapes.get(key)
-            current_shape = current_model[key].shape
-            
-            if reference_shape != current_shape:
-                return False, (
-                    f"Shape mismatch for key '{key}': "
-                    f"{reference_name} has {reference_shape}, "
-                    f"{current_name} has {current_shape}"
-                )
+
+        val = current_model[key]
+        if isinstance(val, torch.Tensor):
+            current_shape = val.shape
+        elif isinstance(val, torch.Size):
+            current_shape = val
+        else:
+            continue  # Unknown type — skip shape check
+
+        reference_shape = reference_shapes.get(key)
+        if reference_shape != current_shape:
+            return False, (
+                f"Shape mismatch for key '{key}': "
+                f"{reference_name} has {reference_shape}, "
+                f"{current_name} has {current_shape}"
+            )
     
     return True, None

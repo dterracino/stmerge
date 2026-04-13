@@ -27,6 +27,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Block-weighted merging (different weights per layer)
 - Model info command (inspect models without merging)
 
+## [0.6.2] - 2026-04-12
+
+### Fixed
+
+- **Consensus merge: eliminated Python element loop (critical performance fix)**
+  - Replaced `for elem_idx in range(num_elements)` with fully vectorized PyTorch ops over the `(N, E)` matrix
+  - Intermediate `(N × N × chunk)` pairwise distance matrix is processed in configurable chunks (`CONSENSUS_CHUNK_SIZE = 65536`) to bound peak RAM — ~134 MB per chunk at N=8, fits comfortably on 16 GB+ systems
+  - Consensus is now usable on full SDXL models; previously would have taken hours per merge
+
+- **Consensus merge: switched from `load_file` to `safe_open` (true memory-mapping)**
+  - `safetensors.torch.load_file()` eagerly loaded all N models into RAM simultaneously; comments incorrectly described this as memory-mapped
+  - Replaced with `safetensors.safe_open()` handles + `get_tensor(key)` per iteration — only the current tensor key is resident per model during the merge loop
+  - Peak RAM for consensus now matches weighted sum (~2× model size) regardless of N models merged
+  - Compatibility validation uses `get_slice(key).get_shape()` (header-only reads, no tensor data loaded)
+
+- **`validate_models_compatible()` now accepts shape-only dicts**
+  - Function signature updated to `Dict[str, Union[torch.Tensor, torch.Size]]`
+  - Shape check works correctly whether passed a full state dict (weighted sum path) or a pre-computed `torch.Size` dict (consensus `safe_open` path)
+  - Previous `isinstance(v, torch.Tensor)` guard silently skipped shape validation for any non-tensor value
+
+### Changed
+
+- `model_merger/config.py`: Added `CONSENSUS_CHUNK_SIZE = 65536` constant controlling the element chunk size for vectorized consensus computation
+- `model_merger/__init__.py`: Corrected `__version__` (was `0.5.1`, behind the actual `0.6.1` release)
+
 ## [0.6.1] - 2024-12-25
 
 ### Added

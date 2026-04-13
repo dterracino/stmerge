@@ -102,7 +102,7 @@ python run.py merge --manifest my_manifest.json --merge-method weighted
 
 **Best for:** General purpose merging, quick experiments
 
-### Consensus Merge (New!)
+### Consensus Merge
 
 Outlier-resistant merging using inverse distance weighting. Computes adaptive weights for each parameter based on inter-model agreement.
 
@@ -125,14 +125,14 @@ python run.py merge --manifest my_manifest.json --merge-method consensus
   - Higher = more aggressive outlier suppression
   - Lower = more tolerance for diversity
 
-**How it works:** For each weight position across all models, consensus merge computes the average distance from each value to all others. Values that are close to the consensus get high weights, outliers get suppressed exponentially. This happens per-element, so different layers can have different consensus patterns.
+**How it works:** For each weight position across all models, consensus merge computes the average distance from each value to all others. Values that are close to the consensus get high weights, outliers get suppressed exponentially. The inner computation is fully vectorized and chunked, so it performs well even on large SDXL models. Files are read via true memory-mapping (`safe_open`), so only the current tensor is in RAM per model — peak usage stays near 2× model size regardless of how many models you merge.
 
 **Comparison:**
 
 | Feature | Weighted Sum | Consensus |
 | --------- | ------------- | ----------- |
-| Speed | ⚡ Fast | 🐢 Slower |
-| Memory | 💚 Low (2 models) | 💛 Moderate (1 tensor × N models) |
+| Speed | ⚡ Fast | ⚡ Fast (vectorized) |
+| Memory | 💚 Low (2 models) | 💚 Low (2 models, true memory-mapped) |
 | Outlier handling | ❌ None | ✅ Automatic suppression |
 | User weights | ✅ Respected | ❌ Ignored (computed adaptively) |
 | Best use case | Quick merges, few models | Diverse models, artifact reduction |

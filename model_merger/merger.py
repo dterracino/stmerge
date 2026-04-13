@@ -283,135 +283,149 @@ def _consensus_merge(
 ) -> Dict[str, torch.Tensor]:
     """
     Internal: Merge models using consensus-based outlier-resistant weighting.
-    
-    This algorithm computes adaptive weights for each individual parameter position
-    based on inter-model agreement. Values that are outliers get suppressed.
-    
-    Uses memory-mapped file loading to only load one tensor at a time from all models,
-    avoiding the need to load all models into memory simultaneously.
-    
+
+    Computes adaptive per-element weights based on inter-model agreement using
+    inverse distance weighting. Values that are outliers get suppressed.
+
+    Uses true memory-mapped file access (safetensors safe_open) so only one
+    tensor at a time is resident per model during the merge loop, keeping peak
+    RAM at approximately 2× model size regardless of N models.
+
+    The consensus weight computation is fully vectorized and processed in
+    element-wise chunks (config.CONSENSUS_CHUNK_SIZE) to bound the size of
+    the intermediate (N × N × chunk_size) pairwise distance matrix.
+
     Args:
         model_entries: List of models (user-provided weights are ignored in consensus mode)
         device: Device to compute on ('cpu' or 'cuda')
         validate_compatibility: Check models are compatible before merging
-        exponent: Power for outlier suppression (higher = more aggressive)
-    
+        exponent: Power for outlier suppression (higher = more aggressive, range 2-8)
+
     Returns:
         The consensus-merged model state dict
     """
-    import safetensors.torch
-    
+    from safetensors import safe_open
+
     if not model_entries:
         raise ValueError("No models provided for merging")
-    
+
     if len(model_entries) == 1:
         console.print("[yellow]Warning:[/yellow] Only one model provided, returning it unmodified")
         state_dict, _ = load_model(Path(model_entries[0].path), device=device)
         return state_dict
-    
+
     print_section(f"Consensus Merging {len(model_entries)} Models")
     console.print(f"  [dim]Using exponent={exponent} for outlier suppression[/dim]")
     console.print(f"  [yellow]Note:[/yellow] User-provided weights are ignored in consensus mode\n")
-    
-    # Extract paths for easier handling
+
     model_paths = [Path(entry.path) for entry in model_entries]
-    
-    # Memory-map all model files (cheap operation, just file handles)
+
+    # Open true memory-mapped handles — reads only the file header, no tensor data yet
     console.print("[cyan]Opening model files (memory-mapped)...[/cyan]")
     try:
-        mapped_files = [safetensors.torch.load_file(str(path), device=device) for path in model_paths]
+        handles = [safe_open(str(path), framework='pt', device=device) for path in model_paths]
     except Exception as e:
         raise ValueError(f"Failed to open model files: {e}")
-    
-    # Get tensor keys from first model
-    reference_keys = set(mapped_files[0].keys())
+
+    reference_keys = set(handles[0].keys())
     console.print(f"  [dim]Found {len(reference_keys)} tensors to merge[/dim]\n")
-    
-    # Validate compatibility if requested
+
+    # Validate compatibility using header-only shape info — no tensor data loaded
     if validate_compatibility:
         console.print("[cyan]Validating model compatibility...[/cyan]")
-        reference_shapes = {k: mapped_files[0][k].shape for k in reference_keys}
-        
-        for idx, mmap in enumerate(mapped_files[1:], start=2):
-            model_name = model_paths[idx-1].name
-            current_keys = set(mmap.keys())
-            
-            # Use existing validation function
+        reference_shapes = {
+            k: torch.Size(handles[0].get_slice(k).get_shape()) for k in reference_keys
+        }
+
+        for idx, handle in enumerate(handles[1:], start=2):
+            model_name = model_paths[idx - 1].name
+            current_keys = set(handle.keys())
+            current_shapes = {
+                k: torch.Size(handle.get_slice(k).get_shape()) for k in current_keys
+            }
+
             compatible, error_msg = validate_models_compatible(
                 reference_shapes,
                 reference_keys,
-                {k: mmap[k] for k in current_keys},  # Create dict view for validation
+                current_shapes,
                 model_paths[0].name,
                 model_name
             )
-            
+
             if not compatible:
-                # Clean up file handles
-                del mapped_files
+                del handles
                 raise ValueError(f"Models are incompatible: {error_msg}")
-        
+
         console.print("  [green]✓[/green] All models compatible\n")
-    
-    # Process each tensor with consensus weighting
+
     result = {}
     keys_to_merge = [k for k in reference_keys if not config.should_skip_merge_key(k)]
-    
+    num_models = len(handles)
+    chunk_size = config.CONSENSUS_CHUNK_SIZE
+
     console.print(f"[cyan]Computing consensus merge for {len(keys_to_merge)} tensors...[/cyan]")
-    
+
     with create_progress() as progress:
         task = progress.add_task("Consensus merging", total=len(keys_to_merge))
-        
+
         for key in keys_to_merge:
-            # Load this tensor from all models
-            tensors = [mmap[key].to(device) for mmap in mapped_files]
-            
-            # Check if this is a weight/bias tensor that should be merged
-            if 'weight' in key or 'bias' in key:
-                # Ensure fp32 for numerical stability
+            # get_tensor() loads only this key for each model; prior keys are not retained
+            tensors = [handle.get_tensor(key).to(device) for handle in handles]
+
+            if tensors[0].is_floating_point():
                 tensors = [t.to(torch.float32) for t in tensors]
-                
-                # Apply consensus weighting element-wise
-                # Stack tensors: shape (num_models, *tensor_shape)
-                stacked = torch.stack(tensors, dim=0)
-                
-                # Flatten to (num_models, num_elements)
+
+                stacked = torch.stack(tensors, dim=0)          # (N, *shape)
                 original_shape = stacked.shape[1:]
-                stacked_flat = stacked.reshape(stacked.shape[0], -1)
-                
-                # Compute consensus weights for each element position
-                # This is the expensive operation but it's what makes consensus work
+                stacked_flat = stacked.reshape(num_models, -1)  # (N, E)
                 num_elements = stacked_flat.shape[1]
                 merged_flat = torch.zeros(num_elements, dtype=torch.float32, device=device)
-                
-                for elem_idx in range(num_elements):
-                    # Get all model values at this position
-                    values = stacked_flat[:, elem_idx]
-                    
-                    # Compute consensus weights
-                    weights = compute_consensus_weights(values, exponent=exponent)
-                    
-                    # Weighted sum using consensus weights
-                    merged_flat[elem_idx] = (values * weights).sum()
-                
-                # Reshape back to original tensor shape
+
+                # Process in chunks to bound peak RAM from the (N × N × C) distance matrix.
+                # For N=8, chunk_size=65536: 8×8×65536×4 B ≈ 134 MB per chunk.
+                for chunk_start in range(0, num_elements, chunk_size):
+                    chunk_end = min(chunk_start + chunk_size, num_elements)
+                    chunk = stacked_flat[:, chunk_start:chunk_end]  # (N, C)
+
+                    # Pairwise distances: (N, N, C) → average per model: (N, C)
+                    diff = chunk.unsqueeze(1) - chunk.unsqueeze(0)
+                    avg_dist = diff.abs().mean(dim=1)
+                    del diff
+
+                    min_d = avg_dist.min(dim=0).values   # (C,)
+                    max_d = avg_dist.max(dim=0).values   # (C,)
+                    range_d = (max_d - min_d).clamp(min=1e-10)
+
+                    normalized = (avg_dist - min_d) / range_d  # (N, C)
+                    weights = (1.0 - normalized) ** exponent   # (N, C)
+                    del avg_dist, normalized
+
+                    # Columns where all models agree exactly: assign equal weights
+                    # to avoid numerical noise from the clamp driving arbitrary results
+                    equal_cols = (max_d - min_d) < 1e-10       # (C,) bool
+                    weights[:, equal_cols] = 1.0 / num_models
+
+                    weights = weights / weights.sum(dim=0, keepdim=True)
+                    merged_flat[chunk_start:chunk_end] = (chunk * weights).sum(dim=0)
+                    del weights
+
                 result[key] = merged_flat.reshape(*original_shape)
+                del stacked, stacked_flat, merged_flat
             else:
-                # Non-weight tensors: just copy from first model
+                # Non-float tensors (e.g. integer indices): copy from first model
                 result[key] = tensors[0]
-            
-            # Free memory immediately
+
             del tensors
             progress.advance(task)
-    
-    # Clean up memory-mapped files
-    del mapped_files
+
+    del handles
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-    
+
     print_success(f"Consensus merge complete! Combined {len(model_entries)} models.")
     console.print(f"  [dim]Total tensors in result: {len(result)}[/dim]\n")
-    
+
     return result
 
 

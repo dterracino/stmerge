@@ -117,6 +117,12 @@ MERGE_METHOD_CONSENSUS = 'consensus'
 # Consensus merge settings
 DEFAULT_CONSENSUS_EXPONENT = 4  # Power to apply for outlier suppression (higher = more aggressive)
 
+# Chunk size for vectorized consensus inner loop.
+# Bounds the intermediate (N × N × chunk_size) pairwise distance matrix.
+# For N=8 models: 8 × 8 × 65536 × 4 B ≈ 134 MB per chunk — fits on 16 GB+ systems.
+# Reduce this value on memory-constrained hardware.
+CONSENSUS_CHUNK_SIZE = 65536
+
 # Merge settings defaults
 DEFAULT_MERGE_SETTINGS = {
     'output_precision': 'match',  # 'match', 'fp16', or 'fp32'
